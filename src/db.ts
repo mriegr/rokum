@@ -94,6 +94,20 @@ function mapCustomPoi(row: Record<string, unknown>): CustomPoi {
   };
 }
 
+function mapPoi(row: Record<string, unknown>): PoiRecord {
+  return {
+    id: Number(row.id),
+    category: String(row.category) as StandardPoiCategory,
+    name: String(row.name),
+    address: String(row.address),
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+    source: String(row.source),
+    externalId: row.external_id === null ? null : String(row.external_id),
+    tags: parseJson(row.tags_json === null ? null : String(row.tags_json), [] as string[]),
+  };
+}
+
 export function createDatabase(config: AppConfig) {
   const database = new Database(config.databasePath, { create: true });
   database.exec(`
@@ -135,6 +149,7 @@ export function createDatabase(config: AppConfig) {
       longitude REAL NOT NULL,
       source TEXT NOT NULL,
       external_id TEXT,
+      tags_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
       UNIQUE(category, name, latitude, longitude)
     );
@@ -182,6 +197,13 @@ export function createDatabase(config: AppConfig) {
       value TEXT NOT NULL
     );
   `);
+
+  const poiColumns = database
+    .query("PRAGMA table_info(pois)")
+    .all() as Array<{ name: string }>;
+  if (!poiColumns.some((column) => column.name === "tags_json")) {
+    database.exec("ALTER TABLE pois ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';");
+  }
 
   const existingWeights = database
     .query("SELECT value FROM settings WHERE key = 'weights'")
@@ -525,9 +547,14 @@ export function insertOrIgnorePoi(database: SqlDatabase, poi: Omit<PoiRecord, "i
   database
     .query(
       `
-        INSERT OR IGNORE INTO pois (
-          category, name, address, latitude, longitude, source, external_id, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        INSERT INTO pois (
+          category, name, address, latitude, longitude, source, external_id, tags_json, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        ON CONFLICT(category, name, latitude, longitude) DO UPDATE SET
+          address = excluded.address,
+          source = excluded.source,
+          external_id = excluded.external_id,
+          tags_json = excluded.tags_json
       `,
     )
     .run(
@@ -538,6 +565,7 @@ export function insertOrIgnorePoi(database: SqlDatabase, poi: Omit<PoiRecord, "i
       poi.longitude,
       poi.source,
       poi.externalId,
+      JSON.stringify(poi.tags),
       now(),
     );
 }
@@ -545,14 +573,9 @@ export function insertOrIgnorePoi(database: SqlDatabase, poi: Omit<PoiRecord, "i
 export function listPoisByCategory(database: SqlDatabase, category: StandardPoiCategory) {
   return (database
     .query("SELECT * FROM pois WHERE category = ?1")
-    .all(category) as Record<string, unknown>[]).map((row) => ({
-    id: Number(row.id),
-    category: String(row.category) as StandardPoiCategory,
-    name: String(row.name),
-    address: String(row.address),
-    latitude: Number(row.latitude),
-    longitude: Number(row.longitude),
-    source: String(row.source),
-    externalId: row.external_id === null ? null : String(row.external_id),
-  }));
+    .all(category) as Record<string, unknown>[]).map(mapPoi);
+}
+
+export function listAllPois(database: SqlDatabase) {
+  return (database.query("SELECT * FROM pois").all() as Record<string, unknown>[]).map(mapPoi);
 }

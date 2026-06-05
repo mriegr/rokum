@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import {
   addApartmentPhoto,
   insertOrIgnorePoi,
+  listAllPois,
   listCustomPois,
   listPoisByCategory,
 } from "./db";
@@ -12,7 +13,9 @@ import type {
   CustomPoi,
   PoiRecord,
   StandardPoiCategory,
+  TransitStop,
   TravelMetrics,
+  UbahnRoute,
 } from "./types";
 
 type Coordinates = {
@@ -21,6 +24,7 @@ type Coordinates = {
 };
 
 const STANDARD_RADIUS_METERS = 1800;
+const TRANSIT_RADIUS_METERS = 3200;
 const USER_AGENT = "rokum-apartment-shortlist/1.0";
 
 function toRadians(value: number) {
@@ -41,6 +45,23 @@ export function haversineDistanceMeters(a: Coordinates, b: Coordinates) {
   return earthRadius * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc));
 }
 
+export function nearbyPois(
+  pois: PoiRecord[],
+  origin: Coordinates,
+  radiusMeters: number,
+  limit?: number,
+) {
+  const ranked = pois
+    .map((poi) => ({
+      poi,
+      distance: haversineDistanceMeters(origin, poi),
+    }))
+    .filter((entry) => entry.distance <= radiusMeters)
+    .sort((left, right) => left.distance - right.distance);
+
+  return typeof limit === "number" ? ranked.slice(0, limit).map((entry) => entry.poi) : ranked.map((entry) => entry.poi);
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit) {
   const response = await fetch(url, {
     ...init,
@@ -53,6 +74,24 @@ async function fetchJson<T>(url: string, init?: RequestInit) {
 
   if (!response.ok) {
     throw new Error(`Remote request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function fetchOverpassJson<T>(config: AppConfig, query: string) {
+  const response = await fetch(config.overpassBaseUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=UTF-8",
+      "User-Agent": USER_AGENT,
+      Accept: "application/json",
+    },
+    body: query,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Overpass request failed: ${response.status}`);
   }
 
   return (await response.json()) as T;
@@ -105,20 +144,7 @@ async function fetchOverpassPois(
   }
 
   const query = overpassQuery(category, latitude, longitude);
-  const response = await fetch(config.overpassBaseUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=UTF-8",
-      "User-Agent": USER_AGENT,
-    },
-    body: query,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Overpass request failed: ${response.status}`);
-  }
-
-  const payload = (await response.json()) as {
+  const payload = await fetchOverpassJson<{
     elements: Array<{
       id: number;
       lat?: number;
@@ -126,7 +152,7 @@ async function fetchOverpassPois(
       center?: { lat: number; lon: number };
       tags?: Record<string, string>;
     }>;
-  };
+  }>(config, query);
 
   return payload.elements
     .map((element) => {
@@ -159,6 +185,7 @@ async function fetchOverpassPois(
         longitude: elementLongitude,
         source: "overpass",
         externalId: `${element.id}`,
+        tags: [],
       } satisfies Omit<PoiRecord, "id">;
     })
     .filter(Boolean) as Omit<PoiRecord, "id">[];
@@ -317,9 +344,10 @@ export async function seedSportStudios(database: Database) {
       } | null;
       geo?: {
         latitude?: string | number | null;
-        longitude?: string | number | null;
+      longitude?: string | number | null;
       } | null;
       slug?: string | null;
+      categories?: string[] | null;
     }>;
   };
 
@@ -347,6 +375,7 @@ export async function seedSportStudios(database: Database) {
       longitude,
       source: "urbansportsclub",
       externalId: venue.slug ?? null,
+      tags: venue.categories?.filter(Boolean) ?? [],
     });
   }
 }
@@ -400,4 +429,183 @@ export function categoryLabel(category: StandardPoiCategory) {
 
 export function getActiveCustomPois(database: Database) {
   return listCustomPois(database).filter((poi) => poi.isActive);
+}
+
+export function listNearbyMapPois(
+  database: Database,
+  origin: Coordinates,
+  radiusMeters = 3500,
+) {
+  return nearbyPois(listAllPois(database), origin, radiusMeters);
+}
+
+function metersToLatDegrees(meters: number) {
+  return meters / 111_320;
+}
+
+function metersToLonDegrees(meters: number, latitude: number) {
+  return meters / (111_320 * Math.cos((latitude * Math.PI) / 180));
+}
+
+function transitModeTags(tags: Record<string, string>) {
+  const modes = new Set<string>();
+  if (tags.station === "subway" || tags.subway === "yes") modes.add("U-Bahn");
+  if (tags.railway === "tram_stop" || tags.tram === "yes") modes.add("Tram");
+  if (tags.highway === "bus_stop" || tags.bus === "yes") modes.add("Bus");
+  if (tags.public_transport === "platform" && modes.size === 0) modes.add("Platform");
+  return Array.from(modes);
+}
+
+export async function fetchTransitMapOverlay(
+  config: AppConfig,
+  origin: Coordinates,
+): Promise<{ transitStops: TransitStop[]; ubahnRoutes: UbahnRoute[] }> {
+  const latDelta = metersToLatDegrees(TRANSIT_RADIUS_METERS);
+  const lonDelta = metersToLonDegrees(TRANSIT_RADIUS_METERS, origin.latitude);
+  const south = origin.latitude - latDelta;
+  const north = origin.latitude + latDelta;
+  const west = origin.longitude - lonDelta;
+  const east = origin.longitude + lonDelta;
+
+  try {
+    const stopsPayload = await fetchOverpassJson<{
+      elements: Array<{
+        type: "node" | "way";
+        id: number;
+        lat?: number;
+        lon?: number;
+        center?: { lat: number; lon: number };
+        tags?: Record<string, string>;
+      }>;
+    }>(
+      config,
+      `
+[out:json][timeout:25];
+(
+  node["public_transport"~"platform|stop_position"](${south},${west},${north},${east});
+  node["highway"="bus_stop"](${south},${west},${north},${east});
+  node["railway"~"tram_stop|station|halt|subway_entrance"](${south},${west},${north},${east});
+  way["public_transport"="platform"](${south},${west},${north},${east});
+  way["railway"="station"]["station"="subway"](${south},${west},${north},${east});
+);
+out center tags;
+      `.trim(),
+    );
+
+    const routesPayload = await fetchOverpassJson<{
+      elements: Array<{
+        type: "node" | "way" | "relation";
+        id: number;
+        lat?: number;
+        lon?: number;
+        nodes?: number[];
+        tags?: Record<string, string>;
+        members?: Array<{
+          type: "way" | "node" | "relation";
+          ref: number;
+          role: string;
+        }>;
+      }>;
+    }>(
+      config,
+      `
+[out:json][timeout:25];
+relation["route"="subway"](${south},${west},${north},${east});
+out body;
+>;
+out skel qt;
+      `.trim(),
+    );
+
+    const nodeMap = new Map<number, { latitude: number; longitude: number }>();
+    const wayMap = new Map<number, number[]>();
+    const transitStops = new Map<string, TransitStop>();
+    const ubahnRoutes: UbahnRoute[] = [];
+
+    for (const element of routesPayload.elements) {
+      if (element.type === "node" && typeof element.lat === "number" && typeof element.lon === "number") {
+        nodeMap.set(element.id, {
+          latitude: element.lat,
+          longitude: element.lon,
+        });
+      }
+    }
+
+    for (const element of routesPayload.elements) {
+      if (element.type === "way" && element.nodes) {
+        wayMap.set(element.id, element.nodes);
+      }
+    }
+
+    for (const element of stopsPayload.elements) {
+      const latitude = element.lat ?? element.center?.lat;
+      const longitude = element.lon ?? element.center?.lon;
+      if ((element.type === "node" || element.type === "way") && element.tags && typeof latitude === "number" && typeof longitude === "number") {
+        const modes = transitModeTags(element.tags);
+        if (modes.length === 0) {
+          continue;
+        }
+
+        const key = `${element.id}`;
+        transitStops.set(key, {
+          id: key,
+          name: element.tags.name || element.tags["ref_name"] || "Transit stop",
+          latitude,
+          longitude,
+          modes,
+        });
+      }
+    }
+
+    for (const element of routesPayload.elements) {
+      if (element.type !== "relation" || element.tags?.route !== "subway") {
+        continue;
+      }
+
+      const paths: Array<Array<{ latitude: number; longitude: number }>> = [];
+      for (const member of element.members ?? []) {
+        if (member.type !== "way") {
+          continue;
+        }
+        const nodeIds = wayMap.get(member.ref);
+        if (!nodeIds) {
+          continue;
+        }
+        const path = nodeIds
+          .map((nodeId) => nodeMap.get(nodeId))
+          .filter(Boolean)
+          .map((node) => ({
+            latitude: node!.latitude,
+            longitude: node!.longitude,
+          }));
+
+        if (path.length >= 2) {
+          paths.push(path);
+        }
+      }
+
+      if (paths.length === 0) {
+        continue;
+      }
+
+      ubahnRoutes.push({
+        id: `${element.id}`,
+        name: element.tags.name || element.tags.ref || "U-Bahn route",
+        ref: element.tags.ref || "",
+        color: element.tags.colour || element.tags.color || null,
+        paths,
+      });
+    }
+
+    return {
+      transitStops: Array.from(transitStops.values()),
+      ubahnRoutes,
+    };
+  } catch (error) {
+    console.warn("Transit overlay fetch failed, continuing without routes", error);
+    return {
+      transitStops: [],
+      ubahnRoutes: [],
+    };
+  }
 }

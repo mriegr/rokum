@@ -3,7 +3,9 @@ import type {
   Apartment,
   BootstrapPayload,
   CustomPoi,
+  PoiRecord,
   MapPayload,
+  StandardPoiCategory,
   WeightSettings,
 } from "./types";
 
@@ -26,6 +28,11 @@ type AppState = BootstrapPayload & {
   editingCustomPoiId: number | null;
   sortMode: SortMode;
   mapPayload: MapPayload | null;
+  visiblePoiCategories: Record<StandardPoiCategory, boolean>;
+  showPoiList: boolean;
+  selectedSportTags: string[];
+  showTransitStops: boolean;
+  showUbahnRoutes: boolean;
 };
 
 const rootElement = document.querySelector("#app");
@@ -57,11 +64,31 @@ const state: AppState = {
   editingCustomPoiId: null,
   sortMode: "score",
   mapPayload: null,
+  visiblePoiCategories: {
+    supermarket: true,
+    sport_studio: true,
+    ubahn: true,
+    cafe: true,
+    park_or_river: true,
+  },
+  showPoiList: true,
+  selectedSportTags: [],
+  showTransitStops: true,
+  showUbahnRoutes: true,
 };
 
 let map: any = null;
 let markers: any[] = [];
 let mapTileLayer: any = null;
+let routeLayers: any[] = [];
+
+const POI_LABELS: Record<StandardPoiCategory, string> = {
+  supermarket: "Supermarkets",
+  sport_studio: "Sport studios",
+  ubahn: "U-Bahn",
+  cafe: "Cafes",
+  park_or_river: "Parks / river",
+};
 
 function escapeHtml(value: string) {
   return value
@@ -93,12 +120,42 @@ function currentApartment() {
   return state.apartments.find((apartment) => apartment.id === state.selectedApartmentId) ?? null;
 }
 
+function visibleNearbyPois() {
+  const payload = state.mapPayload;
+  if (!payload) {
+    return [] as PoiRecord[];
+  }
+
+  return payload.nearbyPois.filter((poi) => {
+    if (!state.visiblePoiCategories[poi.category]) {
+      return false;
+    }
+
+    if (poi.category === "sport_studio" && state.selectedSportTags.length > 0) {
+      return poi.tags.some((tag) => state.selectedSportTags.includes(tag));
+    }
+
+    return true;
+  });
+}
+
+function groupedVisiblePois() {
+  const grouped = new Map<StandardPoiCategory, PoiRecord[]>();
+  for (const poi of visibleNearbyPois()) {
+    const bucket = grouped.get(poi.category) ?? [];
+    bucket.push(poi);
+    grouped.set(poi.category, bucket);
+  }
+  return grouped;
+}
+
 function destroyMap() {
   if (map) {
     map.remove();
     map = null;
     mapTileLayer = null;
     markers = [];
+    routeLayers = [];
   }
 }
 
@@ -536,6 +593,83 @@ function renderMapLegend() {
 
   return `
     <div class="map-legend stack compact">
+      <div class="map-controls stack">
+        <div class="panel-block">
+          <div class="panel-block-head">
+            <strong>POIs on map</strong>
+            <button class="ghost-button compact-button" data-action="toggle-poi-list">
+              ${state.showPoiList ? "Hide list" : "Show list"}
+            </button>
+          </div>
+          <div class="toggle-grid">
+            ${(
+              Object.keys(POI_LABELS) as StandardPoiCategory[]
+            ).map(
+              (category) => `
+                <label class="filter-toggle">
+                  <input
+                    type="checkbox"
+                    data-action="toggle-poi-category"
+                    data-category="${category}"
+                    ${state.visiblePoiCategories[category] ? "checked" : ""}
+                  />
+                  <span>${POI_LABELS[category]}</span>
+                </label>
+              `,
+            ).join("")}
+          </div>
+        </div>
+        <div class="panel-block">
+          <div class="panel-block-head">
+            <strong>Transit overlay</strong>
+          </div>
+          <div class="toggle-grid">
+            <label class="filter-toggle">
+              <input
+                type="checkbox"
+                data-action="toggle-transit-stops"
+                ${state.showTransitStops ? "checked" : ""}
+              />
+              <span>Haltestellen</span>
+            </label>
+            <label class="filter-toggle">
+              <input
+                type="checkbox"
+                data-action="toggle-ubahn-routes"
+                ${state.showUbahnRoutes ? "checked" : ""}
+              />
+              <span>U-Bahn routes</span>
+            </label>
+          </div>
+        </div>
+        ${
+          payload.sportStudioTags.length
+            ? `
+              <div class="panel-block">
+                <div class="panel-block-head">
+                  <strong>Sport studio types</strong>
+                  <button class="ghost-button compact-button" data-action="clear-sport-tags">All</button>
+                </div>
+                <div class="tag-grid">
+                  ${payload.sportStudioTags
+                    .map(
+                      (tag) => `
+                        <button
+                          class="tag-chip ${state.selectedSportTags.includes(tag) ? "is-active" : ""}"
+                          data-action="toggle-sport-tag"
+                          data-tag="${escapeHtml(tag)}"
+                        >
+                          ${escapeHtml(tag)}
+                        </button>
+                      `,
+                    )
+                    .join("")}
+                </div>
+              </div>
+            `
+            : ""
+        }
+      </div>
       <div class="selector-block">
         <label>
           Apartment focus
@@ -597,6 +731,56 @@ function renderMapLegend() {
           )
           .join("")}
       </div>
+      ${
+        state.showPoiList
+          ? `
+            <div class="poi-list-block">
+              <div class="panel-block-head">
+                <strong>Visible POIs</strong>
+                <span>${visibleNearbyPois().length}</span>
+              </div>
+              <div class="poi-list">
+                ${
+                  visibleNearbyPois().length
+                    ? Array.from(groupedVisiblePois().entries())
+                        .map(
+                          ([category, pois]) => `
+                            <section class="poi-group">
+                              <h3>${POI_LABELS[category]}</h3>
+                              ${pois
+                                .map(
+                                  (poi) => `
+                                    <article class="poi-row">
+                                      <div>
+                                        <strong>${escapeHtml(poi.name)}</strong>
+                                        <p>${escapeHtml(poi.address || "Address unavailable")}</p>
+                                      </div>
+                                      ${
+                                        poi.category === "sport_studio" && poi.tags.length
+                                          ? `<div class="poi-tags">${poi.tags
+                                              .slice(0, 3)
+                                              .map(
+                                                (tag) =>
+                                                  `<span class="mini-tag">${escapeHtml(tag)}</span>`,
+                                              )
+                                              .join("")}</div>`
+                                          : ""
+                                      }
+                                    </article>
+                                  `,
+                                )
+                                .join("")}
+                            </section>
+                          `,
+                        )
+                        .join("")
+                    : `<div class="empty-state compact"><p>No POIs match the current filters.</p></div>`
+                }
+              </div>
+            </div>
+          `
+          : ""
+      }
     </div>
   `;
 }
@@ -613,7 +797,7 @@ function renderMapView() {
 }
 
 function render() {
-  if (state.activeView !== "map") {
+  if (state.activeView === "map" || map) {
     destroyMap();
   }
 
@@ -740,8 +924,48 @@ function bindEvents() {
         state.apartmentEditorMode = "edit";
         render();
       }
+
+      if (action === "toggle-poi-list") {
+        state.showPoiList = !state.showPoiList;
+        render();
+      }
+
+      if (action === "toggle-transit-stops") {
+        state.showTransitStops = !state.showTransitStops;
+        render();
+      }
+
+      if (action === "toggle-ubahn-routes") {
+        state.showUbahnRoutes = !state.showUbahnRoutes;
+        render();
+      }
+
+      if (action === "clear-sport-tags") {
+        state.selectedSportTags = [];
+        render();
+      }
+
+      if (action === "toggle-sport-tag") {
+        const tag = target.dataset.tag;
+        if (!tag) return;
+        state.selectedSportTags = state.selectedSportTags.includes(tag)
+          ? state.selectedSportTags.filter((value) => value !== tag)
+          : [...state.selectedSportTags, tag];
+        render();
+      }
     });
   });
+
+  document
+    .querySelectorAll<HTMLInputElement>('input[data-action="toggle-poi-category"]')
+    .forEach((input) => {
+      input.addEventListener("change", () => {
+        const category = input.dataset.category as StandardPoiCategory | undefined;
+        if (!category) return;
+        state.visiblePoiCategories[category] = input.checked;
+        render();
+      });
+    });
 
   const apartmentForm = document.querySelector<HTMLFormElement>("#apartment-form");
   apartmentForm?.addEventListener("submit", async (event) => {
@@ -872,6 +1096,9 @@ function renderMap() {
     map = window.L.map("map-canvas", {
       zoomControl: true,
       scrollWheelZoom: true,
+      zoomAnimation: false,
+      fadeAnimation: false,
+      markerZoomAnimation: false,
     });
     mapTileLayer = window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
@@ -884,6 +1111,8 @@ function renderMap() {
 
   markers.forEach((marker) => marker.remove());
   markers = [];
+  routeLayers.forEach((layer) => layer.remove());
+  routeLayers = [];
 
   const payload = state.mapPayload;
   if (!payload || payload.apartment.latitude === null || payload.apartment.longitude === null) {
@@ -896,22 +1125,62 @@ function renderMap() {
   apartmentMarker.bindPopup(`<strong>${escapeHtml(payload.apartment.address)}</strong>`);
   markers.push(apartmentMarker);
 
-  for (const score of payload.standardPoiScores) {
-    const marker = window.L.circleMarker([score.latitude, score.longitude], {
-      radius: 8,
-      color: "#b54d32",
-      fillColor: "#f5b08f",
-      fillOpacity: 0.9,
+  if (state.showUbahnRoutes) {
+    for (const route of payload.ubahnRoutes) {
+      for (const path of route.paths) {
+        const polyline = window.L.polyline(
+          path.map((point) => [point.latitude, point.longitude]),
+          {
+            color: route.color || "#0056b8",
+            weight: 4,
+            opacity: 0.65,
+          },
+        ).addTo(map);
+        polyline.bindPopup(
+          `<strong>${escapeHtml(route.ref || route.name)}</strong><br />${escapeHtml(
+            route.name,
+          )}`,
+        );
+        routeLayers.push(polyline);
+      }
+    }
+  }
+
+  for (const poi of visibleNearbyPois()) {
+    const isSportStudio = poi.category === "sport_studio";
+    const marker = window.L.circleMarker([poi.latitude, poi.longitude], {
+      radius: isSportStudio ? 7 : 6,
+      color: isSportStudio ? "#0f6b57" : "#275d8a",
+      fillColor: isSportStudio ? "#7ad3b0" : "#b7d5ea",
+      fillOpacity: 0.92,
       weight: 2,
     }).addTo(map);
     marker.bindPopup(
-      `<strong>${escapeHtml(score.label)}</strong><br />${escapeHtml(
-        score.poiName,
-      )}<br />Walk ${score.walking.durationMinutes ?? "n/a"} min · Transit ${
-        score.transit.durationMinutes ?? "n/a"
-      } min`,
+      `<strong>${escapeHtml(poi.name)}</strong><br />${escapeHtml(
+        POI_LABELS[poi.category],
+      )}<br />${escapeHtml(poi.address || "Address unavailable")}${
+        poi.tags.length ? `<br />${escapeHtml(poi.tags.join(", "))}` : ""
+      }`,
     );
     markers.push(marker);
+  }
+
+  if (state.showTransitStops) {
+    for (const stop of payload.transitStops) {
+      const marker = window.L.circleMarker([stop.latitude, stop.longitude], {
+        radius: 5,
+        color: "#101820",
+        fillColor: "#ffe55c",
+        fillOpacity: 0.95,
+        weight: 2,
+      }).addTo(map);
+      marker.bindPopup(
+        `<strong>${escapeHtml(stop.name)}</strong><br />${escapeHtml(
+          stop.modes.join(", "),
+        )}`,
+      );
+      markers.push(marker);
+    }
   }
 
   for (const score of payload.customPoiScores) {

@@ -54,6 +54,7 @@ export type PoiRecord = {
   longitude: number;
   source: string;
   externalId: string | null;
+  tags: string[];
 };
 
 export type CustomPoiInput = {
@@ -119,6 +120,26 @@ export type MapPayload = {
   apartment: Apartment;
   standardPoiScores: StandardPoiScore[];
   customPoiScores: CustomPoiScore[];
+  nearbyPois: PoiRecord[];
+  sportStudioTags: string[];
+  transitStops: TransitStop[];
+  ubahnRoutes: UbahnRoute[];
+};
+
+export type TransitStop = {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  modes: string[];
+};
+
+export type UbahnRoute = {
+  id: string;
+  name: string;
+  ref: string;
+  color: string | null;
+  paths: Array<Array<{ latitude: number; longitude: number }>>;
 };
 
 export type BootstrapPayload = {

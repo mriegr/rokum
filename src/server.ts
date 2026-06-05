@@ -36,8 +36,10 @@ import {
 } from "./scoring";
 import {
   ensurePoisForCategory,
+  fetchTransitMapOverlay,
   geocodeAddress,
   getActiveCustomPois,
+  listNearbyMapPois,
   routeTransit,
   routeWalking,
   seedSportStudios,
@@ -457,9 +459,61 @@ export async function getApartmentMapData(
   }
 
   const scoring = apartment.scoring;
+  const nearbyPois =
+    apartment.latitude !== null && apartment.longitude !== null
+      ? listNearbyMapPois(app.database, {
+          latitude: apartment.latitude,
+          longitude: apartment.longitude,
+        })
+      : [];
+  const sportStudioTags = Array.from(
+    new Set(
+      nearbyPois
+        .filter((poi) => poi.category === "sport_studio")
+        .flatMap((poi) => poi.tags),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+  const transitOverlay =
+    apartment.latitude !== null && apartment.longitude !== null
+      ? await fetchTransitMapOverlay(app.config, {
+          latitude: apartment.latitude,
+          longitude: apartment.longitude,
+        })
+      : { transitStops: [], ubahnRoutes: [] };
+  const fallbackTransitStops =
+    transitOverlay.transitStops.length > 0
+      ? transitOverlay.transitStops
+      : [
+          ...nearbyPois
+            .filter((poi) => poi.category === "ubahn")
+            .map((poi) => ({
+              id: `poi-${poi.id}`,
+              name: poi.name,
+              latitude: poi.latitude,
+              longitude: poi.longitude,
+              modes: ["U-Bahn"],
+            })),
+          ...scoring.standardPoiScores
+            .filter((score) => score.category === "ubahn")
+            .map((score) => ({
+              id: `score-${score.category}-${score.poiName}`,
+              name: score.poiName,
+              latitude: score.latitude,
+              longitude: score.longitude,
+              modes: ["U-Bahn"],
+            })),
+        ].filter(
+          (stop, index, allStops) =>
+            allStops.findIndex((candidate) => candidate.id === stop.id) === index,
+        );
+
   return {
     apartment,
     standardPoiScores: scoring.standardPoiScores,
     customPoiScores: scoring.customPoiScores,
+    nearbyPois,
+    sportStudioTags,
+    transitStops: fallbackTransitStops,
+    ubahnRoutes: transitOverlay.ubahnRoutes,
   };
 }
