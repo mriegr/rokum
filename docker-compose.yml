@@ -1,0 +1,12 @@
+services:
+  rokum:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      DATA_DIR: /data
+      CITY: Munich
+      TRANSIT_MODE: heuristic
+    volumes:
+      - ./data:/data
