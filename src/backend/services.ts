@@ -32,10 +32,8 @@ type Coordinates = {
 };
 
 const STANDARD_RADIUS_METERS = 1800;
-const TRANSIT_RADIUS_METERS = 3200;
 const USER_AGENT = "rokum-apartment-shortlist/1.0";
 const OVERPASS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const TRANSIT_OVERLAY_FAILURE_TTL_MS = 10 * 60 * 1000;
 
 type OverpassCacheEntry = {
   expiresAt: number;
@@ -43,13 +41,6 @@ type OverpassCacheEntry = {
 };
 
 const overpassCache = new Map<string, OverpassCacheEntry>();
-const transitOverlayFailureCache = new Map<
-  string,
-  {
-    expiresAt: number;
-    payload: { transitStops: TransitStop[]; ubahnRoutes: UbahnRoute[] };
-  }
->();
 
 function toRadians(value: number) {
   return (value * Math.PI) / 180;
@@ -480,14 +471,6 @@ export function listNearbyMapPois(
   return nearbyPois(listActivePois(database), origin, radiusMeters);
 }
 
-function metersToLatDegrees(meters: number) {
-  return meters / 111_320;
-}
-
-function metersToLonDegrees(meters: number, latitude: number) {
-  return meters / (111_320 * Math.cos((latitude * Math.PI) / 180));
-}
-
 function transitModeTags(tags: Record<string, string>) {
   const modes = new Set<string>();
   if (tags.station === "subway" || tags.subway === "yes") modes.add("U-Bahn");
@@ -875,89 +858,13 @@ export async function fetchMunichUbahnOverlay(config: AppConfig) {
   return await fetchMunichUbahnOverlayFromOverpass(config);
 }
 
-async function fetchTransitStopsForOrigin(config: AppConfig, origin: Coordinates) {
-  const cacheKey = `${origin.latitude.toFixed(4)},${origin.longitude.toFixed(4)}`;
-  const now = Date.now();
-
-  const failureCached = transitOverlayFailureCache.get(`${config.databasePath}::${cacheKey}`);
-  if (failureCached && failureCached.expiresAt > now) {
-    return failureCached.payload.transitStops;
-  }
-
-  const latDelta = metersToLatDegrees(TRANSIT_RADIUS_METERS);
-  const lonDelta = metersToLonDegrees(TRANSIT_RADIUS_METERS, origin.latitude);
-  const south = origin.latitude - latDelta;
-  const north = origin.latitude + latDelta;
-  const west = origin.longitude - lonDelta;
-  const east = origin.longitude + lonDelta;
-
-  try {
-    const stopsPayload = await fetchOverpassJson<{
-      elements: Array<{
-        type: "node" | "way";
-        id: number;
-        lat?: number;
-        lon?: number;
-        center?: { lat: number; lon: number };
-        tags?: Record<string, string>;
-      }>;
-    }>(
-      config,
-      `
-[out:json][timeout:25];
-(
-  node["public_transport"~"platform|stop_position"](${south},${west},${north},${east});
-  node["highway"="bus_stop"](${south},${west},${north},${east});
-  node["railway"~"tram_stop|station|halt|subway_entrance"](${south},${west},${north},${east});
-  way["public_transport"="platform"](${south},${west},${north},${east});
-  way["railway"="station"]["station"="subway"](${south},${west},${north},${east});
-);
-out center tags;
-      `.trim(),
-    );
-
-    const transitStops = new Map<string, TransitStop>();
-    for (const element of stopsPayload.elements) {
-      const latitude = element.lat ?? element.center?.lat;
-      const longitude = element.lon ?? element.center?.lon;
-      if ((element.type === "node" || element.type === "way") && element.tags && typeof latitude === "number" && typeof longitude === "number") {
-        const modes = transitModeTags(element.tags);
-        if (modes.length === 0) {
-          continue;
-        }
-
-        const key = `${element.id}`;
-        transitStops.set(key, {
-          id: key,
-          name: element.tags.name || element.tags["ref_name"] || "Transit stop",
-          latitude,
-          longitude,
-          modes,
-        });
-      }
-    }
-    return Array.from(transitStops.values());
-  } catch (error) {
-    console.warn("Transit stops fetch failed, continuing without stops", error);
-    const payload: TransitStop[] = [];
-    transitOverlayFailureCache.set(`${config.databasePath}::${cacheKey}`, {
-      payload: { transitStops: payload, ubahnRoutes: [] },
-      expiresAt: now + TRANSIT_OVERLAY_FAILURE_TTL_MS,
-    });
-    return payload;
-  }
-}
-
 export async function fetchTransitMapOverlay(
   config: AppConfig,
-  origin: Coordinates,
-): Promise<{ transitStops: TransitStop[]; ubahnStations: TransitStop[]; ubahnRoutes: UbahnRoute[] }> {
-  const transitStops = await fetchTransitStopsForOrigin(config, origin);
+): Promise<{ ubahnStations: TransitStop[]; ubahnRoutes: UbahnRoute[] }> {
   try {
-    const { ubahnStations, ubahnRoutes } = await fetchMunichUbahnOverlay(config);
-    return { transitStops, ubahnStations, ubahnRoutes };
+    return await fetchMunichUbahnOverlay(config);
   } catch (error) {
     console.warn("Transit overlay fetch failed, continuing without routes", error);
-    return { transitStops, ubahnStations: [], ubahnRoutes: [] };
+    return { ubahnStations: [], ubahnRoutes: [] };
   }
 }

@@ -608,13 +608,6 @@ export function bindMapSidebarEvents(sidebar: HTMLElement) {
         renderMap({ preserveViewport: true });
       }
 
-      if (action === "toggle-transit-stops") {
-        state.showTransitStops = !state.showTransitStops;
-        updateMapSidebar();
-        bindMapSidebarEvents(sidebar);
-        renderMap({ preserveViewport: true });
-      }
-
       if (action === "toggle-ubahn-routes") {
         state.showUbahnRoutes = !state.showUbahnRoutes;
         updateMapSidebar();

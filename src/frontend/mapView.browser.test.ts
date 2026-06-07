@@ -143,15 +143,6 @@ beforeAll(async () => {
         const payload = await getApartmentMapData(app as any, Number(apartmentMapMatch[1]));
         return Response.json({
           ...payload,
-          transitStops: [
-            {
-              id: "stop-u2",
-              name: "Sendlinger Tor",
-              latitude: 48.134,
-              longitude: 11.566,
-              modes: ["U-Bahn"],
-            },
-          ],
           ubahnRoutes: [
             {
               id: "route-u2",

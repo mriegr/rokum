@@ -71,12 +71,9 @@ test("fetchTransitMapOverlay normalizes ubahn route colors for map rendering", a
     });
   }) as unknown as typeof fetch;
 
-  const overlay = await fetchTransitMapOverlay(config, {
-    latitude: 48.137154,
-    longitude: 11.576124,
-  });
+  const overlay = await fetchTransitMapOverlay(config);
 
-  expect(requestCount).toBe(2);
+  expect(requestCount).toBe(1);
   expect(overlay.ubahnStations).toHaveLength(1);
   expect(overlay.ubahnStations[0]?.name).toBe("Sendlinger Tor");
   expect(overlay.ubahnRoutes).toHaveLength(1);
@@ -127,10 +124,7 @@ test("fetchTransitMapOverlay resolves nested route relations", async () => {
     });
   }) as unknown as typeof fetch;
 
-  const overlay = await fetchTransitMapOverlay(config, {
-    latitude: 48.137154,
-    longitude: 11.576124,
-  });
+  const overlay = await fetchTransitMapOverlay(config);
 
   expect(overlay.ubahnRoutes).toHaveLength(1);
   expect(overlay.ubahnRoutes[0]?.paths).toHaveLength(1);
@@ -169,18 +163,12 @@ test("fetchTransitMapOverlay reuses the Munich route cache across origins", asyn
     return Response.json({ elements: [] });
   }) as unknown as typeof fetch;
 
-  const first = await fetchTransitMapOverlay(config, {
-    latitude: 48.137154,
-    longitude: 11.576124,
-  });
-  const second = await fetchTransitMapOverlay(config, {
-    latitude: 48.2,
-    longitude: 11.7,
-  });
+  const first = await fetchTransitMapOverlay(config);
+  const second = await fetchTransitMapOverlay(config);
 
   expect(first.ubahnRoutes).toHaveLength(1);
   expect(second.ubahnRoutes).toHaveLength(1);
-  expect(requestCount).toBe(3);
+  expect(requestCount).toBe(1);
 });
 
 test("fetchTransitMapOverlay groups routes by line ref and merges stations within 500m", async () => {
@@ -284,10 +272,7 @@ test("fetchTransitMapOverlay groups routes by line ref and merges stations withi
     return Response.json({ elements: [] });
   }) as unknown as typeof fetch;
 
-  const overlay = await fetchTransitMapOverlay(config, {
-    latitude: 48.137,
-    longitude: 11.575,
-  });
+  const overlay = await fetchTransitMapOverlay(config);
 
   // Verify stations: Sendlinger Tor should be merged into 1 (average coordinates), Hauptbahnhof is separate. Total 2.
   expect(overlay.ubahnStations).toHaveLength(2);
@@ -327,4 +312,3 @@ test("fetchTransitMapOverlay groups routes by line ref and merges stations withi
   expect(u1Path[1]!.latitude).toBeCloseTo(48.140017, 6);
   expect(u1Path[1]!.longitude).toBeCloseTo(11.570017, 6);
 });
-

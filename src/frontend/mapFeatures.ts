@@ -52,27 +52,6 @@ export function nearbyPoiFeatureCollection() {
   } satisfies FeatureCollection;
 }
 
-export function transitStopFeatureCollection() {
-  if (!state.showTransitStops || !state.mapPayload) {
-    return emptyFeatureCollection();
-  }
-
-  return {
-    type: "FeatureCollection",
-    features: state.mapPayload.transitStops.map((stop) => ({
-      type: "Feature" as const,
-      id: `stop:${stop.id}`,
-      geometry: {
-        type: "Point" as const,
-        coordinates: [stop.longitude, stop.latitude] as LngLatTuple,
-      },
-      properties: {
-        popupHtml: popupHtml(stop.name, [stop.modes.join(", ")]),
-      },
-    })),
-  } satisfies FeatureCollection;
-}
-
 export function ubahnStationFeatureCollection() {
   if (!state.showUbahnRoutes || !state.mapPayload) {
     return emptyFeatureCollection();

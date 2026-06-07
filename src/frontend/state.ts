@@ -36,7 +36,6 @@ export type AppState = BootstrapPayload & {
   visiblePoiCategories: Record<StandardPoiCategory, boolean>;
   showPoiList: boolean;
   selectedSportTags: string[];
-  showTransitStops: boolean;
   showUbahnRoutes: boolean;
   pois: ManagedPoi[];
   indexedPois: IndexedManagedPoi[];
@@ -110,7 +109,6 @@ export const state: AppState = {
   },
   showPoiList: true,
   selectedSportTags: [],
-  showTransitStops: true,
   showUbahnRoutes: true,
   pois: [],
   indexedPois: [],
@@ -137,14 +135,12 @@ export const EMPTY_FEATURE_COLLECTION: FeatureCollection = {
 export const APARTMENT_SOURCE_ID = "apartment";
 export const POI_SOURCE_ID = "nearby-pois";
 export const CUSTOM_POI_SOURCE_ID = "custom-pois";
-export const TRANSIT_SOURCE_ID = "transit-stops";
 export const UBAHN_STATION_SOURCE_ID = "ubahn-stations";
 export const UBAHN_SOURCE_ID = "ubahn-routes";
 
 export const APARTMENT_LAYER_ID = "apartment-layer";
 export const POI_LAYER_ID = "poi-layer";
 export const CUSTOM_POI_LAYER_ID = "custom-poi-layer";
-export const TRANSIT_LAYER_ID = "transit-layer";
 export const UBAHN_STATION_LAYER_ID = "ubahn-station-layer";
 export const UBAHN_LAYER_ID = "ubahn-layer";
 

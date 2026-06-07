@@ -123,7 +123,6 @@ export type MapPayload = {
   customPoiScores: CustomPoiScore[];
   nearbyPois: PoiRecord[];
   sportStudioTags: string[];
-  transitStops: TransitStop[];
   ubahnStations: TransitStop[];
   ubahnRoutes: UbahnRoute[];
 };

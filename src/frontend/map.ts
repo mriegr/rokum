@@ -8,8 +8,6 @@ import {
   EMPTY_FEATURE_COLLECTION,
   POI_LAYER_ID,
   POI_SOURCE_ID,
-  TRANSIT_LAYER_ID,
-  TRANSIT_SOURCE_ID,
   UBAHN_LAYER_ID,
   UBAHN_SOURCE_ID,
   UBAHN_STATION_LAYER_ID,
@@ -22,7 +20,6 @@ import {
   apartmentFeatureCollection,
   customPoiFeatureCollection,
   nearbyPoiFeatureCollection,
-  transitStopFeatureCollection,
   ubahnRouteFeatureCollection,
   ubahnStationFeatureCollection,
 } from "./mapFeatures";
@@ -73,12 +70,6 @@ export function fitMapToPayload() {
     coordinates.push([poi.longitude, poi.latitude]);
   }
 
-  if (state.showTransitStops) {
-    for (const stop of state.mapPayload?.transitStops ?? []) {
-      coordinates.push([stop.longitude, stop.latitude]);
-    }
-  }
-
   for (const score of state.mapPayload?.customPoiScores ?? []) {
     coordinates.push([score.longitude, score.latitude]);
   }
@@ -125,11 +116,9 @@ export function syncMapSources(options?: { preserveViewport?: boolean }) {
   setSourceData(APARTMENT_SOURCE_ID, apartmentFeatureCollection());
   setSourceData(POI_SOURCE_ID, nearbyPoiFeatureCollection());
   setSourceData(CUSTOM_POI_SOURCE_ID, customPoiFeatureCollection());
-  setSourceData(TRANSIT_SOURCE_ID, transitStopFeatureCollection());
   setSourceData(UBAHN_STATION_SOURCE_ID, ubahnStationFeatureCollection());
   setSourceData(UBAHN_SOURCE_ID, ubahnRouteFeatureCollection());
 
-  applyLayerVisibility(TRANSIT_LAYER_ID, state.showTransitStops);
   applyLayerVisibility(UBAHN_STATION_LAYER_ID, state.showUbahnRoutes);
   applyLayerVisibility(UBAHN_LAYER_ID, state.showUbahnRoutes);
 
@@ -167,7 +156,6 @@ function bindMapInteractions() {
     APARTMENT_LAYER_ID,
     POI_LAYER_ID,
     CUSTOM_POI_LAYER_ID,
-    TRANSIT_LAYER_ID,
     UBAHN_STATION_LAYER_ID,
     UBAHN_LAYER_ID,
   ]) {
@@ -200,10 +188,6 @@ function addMapSourcesAndLayers() {
     data: EMPTY_FEATURE_COLLECTION,
   });
   map.addSource(CUSTOM_POI_SOURCE_ID, {
-    type: "geojson",
-    data: EMPTY_FEATURE_COLLECTION,
-  });
-  map.addSource(TRANSIT_SOURCE_ID, {
     type: "geojson",
     data: EMPTY_FEATURE_COLLECTION,
   });
@@ -263,18 +247,6 @@ function addMapSourcesAndLayers() {
       ],
       "circle-stroke-width": 2,
       "circle-opacity": 0.92,
-    },
-  });
-  map.addLayer({
-    id: TRANSIT_LAYER_ID,
-    type: "circle",
-    source: TRANSIT_SOURCE_ID,
-    paint: {
-      "circle-radius": 5,
-      "circle-color": "#ffe55c",
-      "circle-stroke-color": "#101820",
-      "circle-stroke-width": 2,
-      "circle-opacity": 0.95,
     },
   });
   map.addLayer({

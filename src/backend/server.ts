@@ -914,37 +914,8 @@ export async function getApartmentMapData(
   ).sort((left, right) => left.localeCompare(right));
   const transitOverlay =
     apartment.latitude !== null && apartment.longitude !== null
-      ? await fetchTransitMapOverlay(app.config, {
-          latitude: apartment.latitude,
-          longitude: apartment.longitude,
-        })
-      : { transitStops: [], ubahnStations: [], ubahnRoutes: [] };
-  const fallbackTransitStops =
-    transitOverlay.transitStops.length > 0
-      ? transitOverlay.transitStops
-      : [
-          ...nearbyPois
-            .filter((poi) => poi.category === "ubahn")
-            .map((poi) => ({
-              id: `poi-${poi.id}`,
-              name: poi.name,
-              latitude: poi.latitude,
-              longitude: poi.longitude,
-              modes: ["U-Bahn"],
-            })),
-          ...scoring.standardPoiScores
-            .filter((score) => score.category === "ubahn")
-            .map((score) => ({
-              id: `score-${score.category}-${score.poiName}`,
-              name: score.poiName,
-              latitude: score.latitude,
-              longitude: score.longitude,
-              modes: ["U-Bahn"],
-            })),
-        ].filter(
-          (stop, index, allStops) =>
-            allStops.findIndex((candidate) => candidate.id === stop.id) === index,
-        );
+      ? await fetchTransitMapOverlay(app.config)
+      : { ubahnStations: [], ubahnRoutes: [] };
 
   return {
     apartment,
@@ -952,7 +923,6 @@ export async function getApartmentMapData(
     customPoiScores: scoring.customPoiScores,
     nearbyPois,
     sportStudioTags,
-    transitStops: fallbackTransitStops,
     ubahnStations: transitOverlay.ubahnStations,
     ubahnRoutes: transitOverlay.ubahnRoutes,
   };

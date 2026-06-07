@@ -677,14 +677,6 @@ export function renderMapLegend() {
             <label class="filter-toggle">
               <input
                 type="checkbox"
-                data-action="toggle-transit-stops"
-                ${state.showTransitStops ? "checked" : ""}
-              />
-              <span>Haltestellen</span>
-            </label>
-            <label class="filter-toggle">
-              <input
-                type="checkbox"
                 data-action="toggle-ubahn-routes"
                 ${state.showUbahnRoutes ? "checked" : ""}
               />
