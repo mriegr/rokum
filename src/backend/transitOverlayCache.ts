@@ -3,7 +3,7 @@ import { basename, dirname, extname, join } from "node:path";
 import type { AppConfig, TransitStop, UbahnRoute } from "../shared/types";
 
 export type MunichTransitOverlayCache = {
-  version: 2;
+  version: 3;
   ubahnStations: TransitStop[];
   ubahnRoutes: UbahnRoute[];
 };
@@ -25,16 +25,16 @@ export function hasTransitOverlayCache(config: Pick<AppConfig, "databasePath">) 
 
 function normalizeCacheFile(value: unknown): MunichTransitOverlayCache {
   if (!value || typeof value !== "object") {
-    return { version: 2, ubahnStations: [], ubahnRoutes: [] };
+    return { version: 3, ubahnStations: [], ubahnRoutes: [] };
   }
 
   const candidate = value as Partial<MunichTransitOverlayCache>;
-  if (candidate.version !== 2 || !Array.isArray(candidate.ubahnStations) || !Array.isArray(candidate.ubahnRoutes)) {
-    return { version: 2, ubahnStations: [], ubahnRoutes: [] };
+  if (candidate.version !== 3 || !Array.isArray(candidate.ubahnStations) || !Array.isArray(candidate.ubahnRoutes)) {
+    return { version: 3, ubahnStations: [], ubahnRoutes: [] };
   }
 
   return {
-    version: 2,
+    version: 3,
     ubahnStations: candidate.ubahnStations,
     ubahnRoutes: candidate.ubahnRoutes,
   };
@@ -53,14 +53,14 @@ async function readCacheFile(path: string) {
 
   const promise = (async () => {
     if (!existsSync(path)) {
-      return { version: 2, ubahnStations: [], ubahnRoutes: [] } satisfies MunichTransitOverlayCache;
+      return { version: 3, ubahnStations: [], ubahnRoutes: [] } satisfies MunichTransitOverlayCache;
     }
 
     try {
       const contents = await Bun.file(path).text();
       return normalizeCacheFile(JSON.parse(contents));
     } catch {
-      return { version: 2, ubahnStations: [], ubahnRoutes: [] } satisfies MunichTransitOverlayCache;
+      return { version: 3, ubahnStations: [], ubahnRoutes: [] } satisfies MunichTransitOverlayCache;
     }
   })();
 
@@ -107,7 +107,7 @@ export async function saveMunichUbahnRoutes(
 ) {
   const path = getTransitOverlayCachePath(config);
   const file: MunichTransitOverlayCache = {
-    version: 2,
+    version: 3,
     ubahnStations: payload.ubahnStations,
     ubahnRoutes: payload.ubahnRoutes,
   };

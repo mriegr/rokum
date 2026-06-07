@@ -67,7 +67,10 @@ export function ubahnStationFeatureCollection() {
         coordinates: [station.longitude, station.latitude] as LngLatTuple,
       },
       properties: {
-        popupHtml: popupHtml(station.name, [station.modes.join(", ")]),
+        popupHtml: popupHtml(station.name, [
+          station.modes.join(", "),
+          ...(station.routeRefs.length > 0 ? [`Lines: ${station.routeRefs.join(", ")}`] : []),
+        ]),
       },
     })),
   } satisfies FeatureCollection;

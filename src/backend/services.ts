@@ -675,6 +675,7 @@ out skel qt;
       latitude: avgLatitude,
       longitude: avgLongitude,
       modes: mergedModes.length > 0 ? mergedModes : ["U-Bahn"],
+      routeRefs: [],
     });
   }
 
@@ -837,22 +838,47 @@ out skel qt;
     });
   }
 
+  const stationList = Array.from(ubahnStations.values());
+
+  // Match stations to routes by proximity (within 100m)
+  for (const station of stationList) {
+    const matchedRefs = new Set<string>();
+    for (const route of ubahnRoutes) {
+      if (!route.ref) continue;
+      for (const path of route.paths) {
+        let found = false;
+        for (const point of path) {
+          if (haversineDistanceMeters(station, point) < 100) {
+            matchedRefs.add(route.ref);
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+      }
+    }
+    station.routeRefs = [...matchedRefs].sort();
+  }
+
   await saveMunichUbahnRoutes(config, {
-    ubahnStations: Array.from(ubahnStations.values()),
+    ubahnStations: stationList,
     ubahnRoutes,
   });
   return {
-    ubahnStations: Array.from(ubahnStations.values()),
+    ubahnStations: stationList,
     ubahnRoutes,
   };
 }
 
 export async function fetchMunichUbahnOverlay(config: AppConfig) {
   if (hasTransitOverlayCache(config)) {
-    return {
-      ubahnStations: await getMunichUbahnStations(config),
-      ubahnRoutes: await getMunichUbahnRoutes(config),
-    };
+    const [ubahnStations, ubahnRoutes] = await Promise.all([
+      getMunichUbahnStations(config),
+      getMunichUbahnRoutes(config),
+    ]);
+    if (ubahnStations.length > 0 || ubahnRoutes.length > 0) {
+      return { ubahnStations, ubahnRoutes };
+    }
   }
 
   return await fetchMunichUbahnOverlayFromOverpass(config);

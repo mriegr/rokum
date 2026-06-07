@@ -133,6 +133,7 @@ export type TransitStop = {
   latitude: number;
   longitude: number;
   modes: string[];
+  routeRefs: string[];
 };
 
 export type UbahnRoute = {

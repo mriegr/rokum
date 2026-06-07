@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 import { getTransitOverlayCachePath, loadMunichTransitOverlayCache, saveMunichUbahnRoutes } from "./transitOverlayCache";
-import type { AppConfig, UbahnRoute } from "../shared/types";
+import type { AppConfig, TransitStop, UbahnRoute } from "../shared/types";
 
 const cachePaths: string[] = [];
 
@@ -47,13 +47,14 @@ test("munich ubahn route cache persists and reloads from disk", async () => {
     },
   ];
 
-  const stations = [
+  const stations: TransitStop[] = [
     {
       id: "station-1",
       name: "Sendlinger Tor",
       latitude: 48.134,
       longitude: 11.566,
       modes: ["U-Bahn"],
+      routeRefs: [],
     },
   ];
 

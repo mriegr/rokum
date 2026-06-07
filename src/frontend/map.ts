@@ -129,20 +129,10 @@ export function syncMapSources(options?: { preserveViewport?: boolean }) {
   resizeMapSoon();
 }
 
-export function showMapPopup(feature: MapGeoJSONFeature) {
-  const coordinates = feature.geometry.type === "Point"
-    ? [...feature.geometry.coordinates]
-    : feature.geometry.coordinates[0]
-      ? [...feature.geometry.coordinates[0]]
-      : null;
-
-  if (!coordinates) {
-    return;
-  }
-
+export function showMapPopup(feature: MapGeoJSONFeature, lngLat: maplibregl.LngLat) {
   popup?.remove();
   popup = new maplibregl.Popup({ closeButton: false, offset: 12 })
-    .setLngLat(coordinates as [number, number])
+    .setLngLat(lngLat)
     .setHTML(String(feature.properties?.popupHtml ?? ""))
     .addTo(map!);
 }
@@ -162,7 +152,7 @@ function bindMapInteractions() {
     map.on("click", layerId, (event) => {
       const feature = event.features?.[0];
       if (feature) {
-        showMapPopup(feature);
+        showMapPopup(feature, event.lngLat);
       }
     });
     map.on("mouseenter", layerId, () => {
@@ -200,18 +190,31 @@ function addMapSourcesAndLayers() {
     data: EMPTY_FEATURE_COLLECTION,
   });
 
-  map.addLayer({
-    id: UBAHN_STATION_LAYER_ID,
-    type: "circle",
-    source: UBAHN_STATION_SOURCE_ID,
-    paint: {
-      "circle-radius": 6,
-      "circle-color": "#0056b8",
-      "circle-stroke-color": "#ffffff",
-      "circle-stroke-width": 2,
-      "circle-opacity": 0.92,
-    },
-  });
+  const iconCanvas = document.createElement("canvas");
+  iconCanvas.width = 24;
+  iconCanvas.height = 24;
+  const iconCtx = iconCanvas.getContext("2d")!;
+  iconCtx.fillStyle = "#0056b8";
+  const r = 5, x = 1, y = 1, w = 22, h = 22;
+  iconCtx.beginPath();
+  iconCtx.moveTo(x + r, y);
+  iconCtx.lineTo(x + w - r, y);
+  iconCtx.quadraticCurveTo(x + w, y, x + w, y + r);
+  iconCtx.lineTo(x + w, y + h - r);
+  iconCtx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  iconCtx.lineTo(x + r, y + h);
+  iconCtx.quadraticCurveTo(x, y + h, x, y + h - r);
+  iconCtx.lineTo(x, y + r);
+  iconCtx.quadraticCurveTo(x, y, x + r, y);
+  iconCtx.closePath();
+  iconCtx.fill();
+  iconCtx.fillStyle = "#ffffff";
+  iconCtx.font = "bold 14px Arial, Helvetica, sans-serif";
+  iconCtx.textAlign = "center";
+  iconCtx.textBaseline = "middle";
+  iconCtx.fillText("U", 12, 12.5);
+  map.addImage("ubahn-station-icon", iconCtx.getImageData(0, 0, 24, 24));
+
   map.addLayer({
     id: UBAHN_LAYER_ID,
     type: "line",
@@ -220,6 +223,17 @@ function addMapSourcesAndLayers() {
       "line-color": ["coalesce", ["get", "color"], "#0056b8"],
       "line-width": 4,
       "line-opacity": 0.65,
+    },
+  });
+  map.addLayer({
+    id: UBAHN_STATION_LAYER_ID,
+    type: "symbol",
+    source: UBAHN_STATION_SOURCE_ID,
+    layout: {
+      "icon-image": "ubahn-station-icon",
+      "icon-size": 0.75,
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
     },
   });
   map.addLayer({
