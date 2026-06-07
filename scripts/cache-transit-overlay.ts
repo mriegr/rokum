@@ -3,7 +3,7 @@
 import { existsSync, rmSync } from "node:fs";
 import { loadConfig } from "../src/config";
 import { createDatabase } from "../src/db";
-import { fetchMunichUbahnRoutes } from "../src/services";
+import { fetchMunichUbahnOverlay } from "../src/services";
 import { getTransitOverlayCachePath } from "../src/transitOverlayCache";
 
 type CliArgs = {
@@ -58,9 +58,9 @@ async function main() {
   }
 
   console.log(`Warming Munich U-Bahn route cache at ${cachePath}`);
-  const routes = await fetchMunichUbahnRoutes(config);
+  const overlay = await fetchMunichUbahnOverlay(config);
 
-  console.log(`Cached ${routes.length} U-Bahn routes at ${cachePath}`);
+  console.log(`Cached ${overlay.ubahnRoutes.length} U-Bahn routes and ${overlay.ubahnStations.length} stations at ${cachePath}`);
 }
 
 main().catch((error) => {

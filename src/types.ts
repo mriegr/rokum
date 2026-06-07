@@ -124,6 +124,7 @@ export type MapPayload = {
   nearbyPois: PoiRecord[];
   sportStudioTags: string[];
   transitStops: TransitStop[];
+  ubahnStations: TransitStop[];
   ubahnRoutes: UbahnRoute[];
 };
 

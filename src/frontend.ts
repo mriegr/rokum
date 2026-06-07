@@ -147,12 +147,14 @@ const APARTMENT_SOURCE_ID = "apartment";
 const POI_SOURCE_ID = "nearby-pois";
 const CUSTOM_POI_SOURCE_ID = "custom-pois";
 const TRANSIT_SOURCE_ID = "transit-stops";
+const UBAHN_STATION_SOURCE_ID = "ubahn-stations";
 const UBAHN_SOURCE_ID = "ubahn-routes";
 
 const APARTMENT_LAYER_ID = "apartment-layer";
 const POI_LAYER_ID = "poi-layer";
 const CUSTOM_POI_LAYER_ID = "custom-poi-layer";
 const TRANSIT_LAYER_ID = "transit-layer";
+const UBAHN_STATION_LAYER_ID = "ubahn-station-layer";
 const UBAHN_LAYER_ID = "ubahn-layer";
 
 const POI_LABELS: Record<StandardPoiCategory, string> = {
@@ -396,6 +398,27 @@ function transitStopFeatureCollection() {
   } satisfies FeatureCollection;
 }
 
+function ubahnStationFeatureCollection() {
+  if (!state.showUbahnRoutes || !state.mapPayload) {
+    return emptyFeatureCollection();
+  }
+
+  return {
+    type: "FeatureCollection",
+    features: state.mapPayload.ubahnStations.map((station) => ({
+      type: "Feature" as const,
+      id: `ubahn-station:${station.id}`,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [station.longitude, station.latitude] as LngLatTuple,
+      },
+      properties: {
+        popupHtml: popupHtml(station.name, [station.modes.join(", ")]),
+      },
+    })),
+  } satisfies FeatureCollection;
+}
+
 function customPoiFeatureCollection() {
   if (!state.mapPayload) {
     return emptyFeatureCollection();
@@ -489,6 +512,9 @@ function fitMapToPayload() {
   }
 
   if (state.showUbahnRoutes) {
+    for (const station of state.mapPayload?.ubahnStations ?? []) {
+      coordinates.push([station.longitude, station.latitude]);
+    }
     for (const route of state.mapPayload?.ubahnRoutes ?? []) {
       for (const path of route.paths) {
         for (const point of path) {
@@ -528,9 +554,11 @@ function syncMapSources(options?: { preserveViewport?: boolean }) {
   setSourceData(POI_SOURCE_ID, nearbyPoiFeatureCollection());
   setSourceData(CUSTOM_POI_SOURCE_ID, customPoiFeatureCollection());
   setSourceData(TRANSIT_SOURCE_ID, transitStopFeatureCollection());
+  setSourceData(UBAHN_STATION_SOURCE_ID, ubahnStationFeatureCollection());
   setSourceData(UBAHN_SOURCE_ID, ubahnRouteFeatureCollection());
 
   applyLayerVisibility(TRANSIT_LAYER_ID, state.showTransitStops);
+  applyLayerVisibility(UBAHN_STATION_LAYER_ID, state.showUbahnRoutes);
   applyLayerVisibility(UBAHN_LAYER_ID, state.showUbahnRoutes);
 
   if (!options?.preserveViewport) {
@@ -568,6 +596,7 @@ function bindMapInteractions() {
     POI_LAYER_ID,
     CUSTOM_POI_LAYER_ID,
     TRANSIT_LAYER_ID,
+    UBAHN_STATION_LAYER_ID,
     UBAHN_LAYER_ID,
   ]) {
     map.on("click", layerId, (event) => {
@@ -606,11 +635,27 @@ function addMapSourcesAndLayers() {
     type: "geojson",
     data: EMPTY_FEATURE_COLLECTION,
   });
+  map.addSource(UBAHN_STATION_SOURCE_ID, {
+    type: "geojson",
+    data: EMPTY_FEATURE_COLLECTION,
+  });
   map.addSource(UBAHN_SOURCE_ID, {
     type: "geojson",
     data: EMPTY_FEATURE_COLLECTION,
   });
 
+  map.addLayer({
+    id: UBAHN_STATION_LAYER_ID,
+    type: "circle",
+    source: UBAHN_STATION_SOURCE_ID,
+    paint: {
+      "circle-radius": 6,
+      "circle-color": "#0056b8",
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 2,
+      "circle-opacity": 0.92,
+    },
+  });
   map.addLayer({
     id: UBAHN_LAYER_ID,
     type: "line",

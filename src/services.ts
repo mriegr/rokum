@@ -19,6 +19,7 @@ import type {
 } from "./types";
 import { MUNICH_GREATER_AREA_BOUNDS } from "./munich";
 import {
+  getMunichUbahnStations,
   getMunichUbahnRoutes,
   hasTransitOverlayCache,
   saveMunichUbahnRoutes,
@@ -525,7 +526,7 @@ function extractMunichBoundsQuery() {
   return { south, west, north, east };
 }
 
-async function fetchMunichUbahnRoutesFromOverpass(config: AppConfig) {
+async function fetchMunichUbahnOverlayFromOverpass(config: AppConfig) {
   const { south, west, north, east } = extractMunichBoundsQuery();
 
   const routesPayload = await fetchOverpassJson<{
@@ -546,7 +547,12 @@ async function fetchMunichUbahnRoutesFromOverpass(config: AppConfig) {
     config,
     `
 [out:json][timeout:25];
-relation["route"="subway"](${south},${west},${north},${east});
+(
+  relation["route"="subway"](${south},${west},${north},${east});
+  node["railway"="station"]["station"="subway"](${south},${west},${north},${east});
+  node["public_transport"="station"]["subway"="yes"](${south},${west},${north},${east});
+  way["railway"="station"]["station"="subway"](${south},${west},${north},${east});
+);
 out body;
 >;
 out skel qt;
@@ -557,6 +563,7 @@ out skel qt;
   const wayMap = new Map<number, number[]>();
   const relationMap = new Map<number, NonNullable<(typeof routesPayload.elements)[number]>>();
   const referencedRouteRelationIds = new Set<number>();
+  const ubahnStations = new Map<string, TransitStop>();
   const ubahnRoutes: UbahnRoute[] = [];
 
   for (const element of routesPayload.elements) {
@@ -583,6 +590,56 @@ out skel qt;
     if (element.type === "way" && element.nodes) {
       wayMap.set(element.id, element.nodes);
     }
+  }
+
+  for (const element of routesPayload.elements) {
+    if (!element.tags) {
+      continue;
+    }
+
+    const isStationNode =
+      element.type === "node" &&
+      (element.tags.railway === "station" || element.tags.subway === "yes");
+    const isStationWay =
+      element.type === "way" &&
+      element.tags.railway === "station" &&
+      element.tags.station === "subway";
+
+    if (!isStationNode && !isStationWay) {
+      continue;
+    }
+
+    let latitude = element.lat ?? null;
+    let longitude = element.lon ?? null;
+
+    if (element.type === "way" && (latitude === null || longitude === null)) {
+      const coords = (element.nodes ?? [])
+        .map((nodeId) => nodeMap.get(nodeId))
+        .filter(Boolean);
+      if (coords.length > 0) {
+        latitude = coords.reduce((sum, coord) => sum + coord!.latitude, 0) / coords.length;
+        longitude = coords.reduce((sum, coord) => sum + coord!.longitude, 0) / coords.length;
+      }
+    }
+
+    if (typeof latitude !== "number" || typeof longitude !== "number") {
+      continue;
+    }
+
+    const modes = transitModeTags(element.tags);
+    if (!modes.includes("U-Bahn")) {
+      continue;
+    }
+
+    const name = element.tags.name || element.tags.ref || "U-Bahn station";
+    const key = `${name}|${latitude.toFixed(4)}|${longitude.toFixed(4)}`;
+    ubahnStations.set(key, {
+      id: key,
+      name,
+      latitude,
+      longitude,
+      modes: ["U-Bahn"],
+    });
   }
 
   function collectRoutePaths(
@@ -651,16 +708,25 @@ out skel qt;
     });
   }
 
-  await saveMunichUbahnRoutes(config, ubahnRoutes);
-  return ubahnRoutes;
+  await saveMunichUbahnRoutes(config, {
+    ubahnStations: Array.from(ubahnStations.values()),
+    ubahnRoutes,
+  });
+  return {
+    ubahnStations: Array.from(ubahnStations.values()),
+    ubahnRoutes,
+  };
 }
 
-export async function fetchMunichUbahnRoutes(config: AppConfig) {
+export async function fetchMunichUbahnOverlay(config: AppConfig) {
   if (hasTransitOverlayCache(config)) {
-    return await getMunichUbahnRoutes(config);
+    return {
+      ubahnStations: await getMunichUbahnStations(config),
+      ubahnRoutes: await getMunichUbahnRoutes(config),
+    };
   }
 
-  return await fetchMunichUbahnRoutesFromOverpass(config);
+  return await fetchMunichUbahnOverlayFromOverpass(config);
 }
 
 async function fetchTransitStopsForOrigin(config: AppConfig, origin: Coordinates) {
@@ -739,13 +805,13 @@ out center tags;
 export async function fetchTransitMapOverlay(
   config: AppConfig,
   origin: Coordinates,
-): Promise<{ transitStops: TransitStop[]; ubahnRoutes: UbahnRoute[] }> {
+): Promise<{ transitStops: TransitStop[]; ubahnStations: TransitStop[]; ubahnRoutes: UbahnRoute[] }> {
   const transitStops = await fetchTransitStopsForOrigin(config, origin);
   try {
-    const ubahnRoutes = await fetchMunichUbahnRoutes(config);
-    return { transitStops, ubahnRoutes };
+    const { ubahnStations, ubahnRoutes } = await fetchMunichUbahnOverlay(config);
+    return { transitStops, ubahnStations, ubahnRoutes };
   } catch (error) {
     console.warn("Transit overlay fetch failed, continuing without routes", error);
-    return { transitStops, ubahnRoutes: [] };
+    return { transitStops, ubahnStations: [], ubahnRoutes: [] };
   }
 }

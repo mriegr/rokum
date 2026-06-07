@@ -38,6 +38,17 @@ test("fetchTransitMapOverlay normalizes ubahn route colors for map rendering", a
       return Response.json({
         elements: [
           {
+            type: "node",
+            id: 50,
+            lat: 48.137,
+            lon: 11.575,
+            tags: {
+              railway: "station",
+              station: "subway",
+              name: "Sendlinger Tor",
+            },
+          },
+          {
             type: "relation",
             id: 200,
             tags: {
@@ -66,6 +77,8 @@ test("fetchTransitMapOverlay normalizes ubahn route colors for map rendering", a
   });
 
   expect(requestCount).toBe(2);
+  expect(overlay.ubahnStations).toHaveLength(1);
+  expect(overlay.ubahnStations[0]?.name).toBe("Sendlinger Tor");
   expect(overlay.ubahnRoutes).toHaveLength(1);
   expect(overlay.ubahnRoutes[0]?.color).toBe("#0056b8");
   expect(overlay.ubahnRoutes[0]?.paths).toHaveLength(1);

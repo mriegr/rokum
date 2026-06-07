@@ -200,8 +200,9 @@ Important consequence: `sport_studio` is special. It is not fetched from Overpas
 ### Transit overlay
 
 - Provider: Overpass
-- Munich U-Bahn routes are cached locally next to the database as `<db-stem>.transit-overlay-cache.json` and loaded before any remote request
+- Munich U-Bahn routes and station pins are cached locally next to the database as `<db-stem>.transit-overlay-cache.json` and loaded before any remote request
 - Stops can still be fetched per apartment, but the line overlay is citywide
+- Station pins use the same U-Bahn toggle as the route lines
 - Normalizes route colors from Overpass before sending them to the browser so MapLibre can render them reliably
 - Resolves nested route relations when assembling U-Bahn polylines
 - Returns empty overlays on failure and caches that failure briefly

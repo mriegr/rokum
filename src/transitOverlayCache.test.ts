@@ -47,9 +47,20 @@ test("munich ubahn route cache persists and reloads from disk", async () => {
     },
   ];
 
-  await saveMunichUbahnRoutes(config, routes);
+  const stations = [
+    {
+      id: "station-1",
+      name: "Sendlinger Tor",
+      latitude: 48.134,
+      longitude: 11.566,
+      modes: ["U-Bahn"],
+    },
+  ];
+
+  await saveMunichUbahnRoutes(config, { ubahnStations: stations, ubahnRoutes: routes });
 
   const cached = await loadMunichTransitOverlayCache(config);
+  expect(cached.ubahnStations).toEqual(stations);
   expect(cached.ubahnRoutes).toEqual(routes);
   expect(await Bun.file(getTransitOverlayCachePath(config)).text()).toContain("U2");
 });

@@ -41,7 +41,7 @@ JAWG_STYLE_ID=jawg-streets
 
 Set `JAWG_API` to enable the vector map view. If it is missing, Rokum keeps the map tab visible but shows a disabled-state message instead of loading the basemap.
 
-To avoid Overpass rate limits for the Munich U-Bahn route overlay, warm the local cache once with:
+To avoid Overpass rate limits for the Munich U-Bahn overlay, warm the local cache once with:
 
 ```bash
 bun run transit:cache

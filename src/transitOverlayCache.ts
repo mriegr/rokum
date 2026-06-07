@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
-import type { AppConfig, UbahnRoute } from "./types";
+import type { AppConfig, TransitStop, UbahnRoute } from "./types";
 
 export type MunichTransitOverlayCache = {
-  version: 1;
+  version: 2;
+  ubahnStations: TransitStop[];
   ubahnRoutes: UbahnRoute[];
 };
 
@@ -24,16 +25,17 @@ export function hasTransitOverlayCache(config: Pick<AppConfig, "databasePath">) 
 
 function normalizeCacheFile(value: unknown): MunichTransitOverlayCache {
   if (!value || typeof value !== "object") {
-    return { version: 1, ubahnRoutes: [] };
+    return { version: 2, ubahnStations: [], ubahnRoutes: [] };
   }
 
   const candidate = value as Partial<MunichTransitOverlayCache>;
-  if (candidate.version !== 1 || !Array.isArray(candidate.ubahnRoutes)) {
-    return { version: 1, ubahnRoutes: [] };
+  if (candidate.version !== 2 || !Array.isArray(candidate.ubahnStations) || !Array.isArray(candidate.ubahnRoutes)) {
+    return { version: 2, ubahnStations: [], ubahnRoutes: [] };
   }
 
   return {
-    version: 1,
+    version: 2,
+    ubahnStations: candidate.ubahnStations,
     ubahnRoutes: candidate.ubahnRoutes,
   };
 }
@@ -51,14 +53,14 @@ async function readCacheFile(path: string) {
 
   const promise = (async () => {
     if (!existsSync(path)) {
-      return { version: 1, ubahnRoutes: [] } satisfies MunichTransitOverlayCache;
+      return { version: 2, ubahnStations: [], ubahnRoutes: [] } satisfies MunichTransitOverlayCache;
     }
 
     try {
       const contents = await Bun.file(path).text();
       return normalizeCacheFile(JSON.parse(contents));
     } catch {
-      return { version: 1, ubahnRoutes: [] } satisfies MunichTransitOverlayCache;
+      return { version: 2, ubahnStations: [], ubahnRoutes: [] } satisfies MunichTransitOverlayCache;
     }
   })();
 
@@ -92,14 +94,22 @@ export async function getMunichUbahnRoutes(
   return cache.ubahnRoutes;
 }
 
+export async function getMunichUbahnStations(
+  config: Pick<AppConfig, "databasePath">,
+) {
+  const cache = await loadMunichTransitOverlayCache(config);
+  return cache.ubahnStations;
+}
+
 export async function saveMunichUbahnRoutes(
   config: Pick<AppConfig, "databasePath">,
-  ubahnRoutes: UbahnRoute[],
+  payload: { ubahnStations: TransitStop[]; ubahnRoutes: UbahnRoute[] },
 ) {
   const path = getTransitOverlayCachePath(config);
   const file: MunichTransitOverlayCache = {
-    version: 1,
-    ubahnRoutes,
+    version: 2,
+    ubahnStations: payload.ubahnStations,
+    ubahnRoutes: payload.ubahnRoutes,
   };
   await writeCacheFile(path, file);
   return file;

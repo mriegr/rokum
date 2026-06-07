@@ -918,7 +918,7 @@ export async function getApartmentMapData(
           latitude: apartment.latitude,
           longitude: apartment.longitude,
         })
-      : { transitStops: [], ubahnRoutes: [] };
+      : { transitStops: [], ubahnStations: [], ubahnRoutes: [] };
   const fallbackTransitStops =
     transitOverlay.transitStops.length > 0
       ? transitOverlay.transitStops
@@ -953,6 +953,7 @@ export async function getApartmentMapData(
     nearbyPois,
     sportStudioTags,
     transitStops: fallbackTransitStops,
+    ubahnStations: transitOverlay.ubahnStations,
     ubahnRoutes: transitOverlay.ubahnRoutes,
   };
 }
