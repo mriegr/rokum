@@ -17,6 +17,12 @@ import type {
   TravelMetrics,
   UbahnRoute,
 } from "./types";
+import { MUNICH_GREATER_AREA_BOUNDS } from "./munich";
+import {
+  getMunichUbahnRoutes,
+  hasTransitOverlayCache,
+  saveMunichUbahnRoutes,
+} from "./transitOverlayCache";
 
 type Coordinates = {
   latitude: number;
@@ -27,7 +33,6 @@ const STANDARD_RADIUS_METERS = 1800;
 const TRANSIT_RADIUS_METERS = 3200;
 const USER_AGENT = "rokum-apartment-shortlist/1.0";
 const OVERPASS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const TRANSIT_OVERLAY_CACHE_TTL_MS = 30 * 60 * 1000;
 const TRANSIT_OVERLAY_FAILURE_TTL_MS = 10 * 60 * 1000;
 
 type OverpassCacheEntry = {
@@ -36,7 +41,7 @@ type OverpassCacheEntry = {
 };
 
 const overpassCache = new Map<string, OverpassCacheEntry>();
-const transitOverlayCache = new Map<
+const transitOverlayFailureCache = new Map<
   string,
   {
     expiresAt: number;
@@ -515,15 +520,156 @@ function normalizeMapColor(value: string | null | undefined) {
   return null;
 }
 
-export async function fetchTransitMapOverlay(
-  config: AppConfig,
-  origin: Coordinates,
-): Promise<{ transitStops: TransitStop[]; ubahnRoutes: UbahnRoute[] }> {
+function extractMunichBoundsQuery() {
+  const [[west, south], [east, north]] = MUNICH_GREATER_AREA_BOUNDS;
+  return { south, west, north, east };
+}
+
+async function fetchMunichUbahnRoutesFromOverpass(config: AppConfig) {
+  const { south, west, north, east } = extractMunichBoundsQuery();
+
+  const routesPayload = await fetchOverpassJson<{
+    elements: Array<{
+      type: "node" | "way" | "relation";
+      id: number;
+      lat?: number;
+      lon?: number;
+      nodes?: number[];
+      tags?: Record<string, string>;
+      members?: Array<{
+        type: "way" | "node" | "relation";
+        ref: number;
+        role: string;
+      }>;
+    }>;
+  }>(
+    config,
+    `
+[out:json][timeout:25];
+relation["route"="subway"](${south},${west},${north},${east});
+out body;
+>;
+out skel qt;
+      `.trim(),
+  );
+
+  const nodeMap = new Map<number, { latitude: number; longitude: number }>();
+  const wayMap = new Map<number, number[]>();
+  const relationMap = new Map<number, NonNullable<(typeof routesPayload.elements)[number]>>();
+  const referencedRouteRelationIds = new Set<number>();
+  const ubahnRoutes: UbahnRoute[] = [];
+
+  for (const element of routesPayload.elements) {
+    if (element.type === "node" && typeof element.lat === "number" && typeof element.lon === "number") {
+      nodeMap.set(element.id, {
+        latitude: element.lat,
+        longitude: element.lon,
+      });
+    }
+  }
+
+  for (const element of routesPayload.elements) {
+    if (element.type === "relation") {
+      relationMap.set(element.id, element);
+      if (element.tags?.route === "subway") {
+        for (const member of element.members ?? []) {
+          if (member.type === "relation") {
+            referencedRouteRelationIds.add(member.ref);
+          }
+        }
+      }
+    }
+
+    if (element.type === "way" && element.nodes) {
+      wayMap.set(element.id, element.nodes);
+    }
+  }
+
+  function collectRoutePaths(
+    relation: NonNullable<(typeof routesPayload.elements)[number]>,
+    visitedRelations = new Set<number>(),
+  ) {
+    if (relation.type !== "relation" || visitedRelations.has(relation.id)) {
+      return [] as Array<Array<{ latitude: number; longitude: number }>>;
+    }
+
+    visitedRelations.add(relation.id);
+    const paths: Array<Array<{ latitude: number; longitude: number }>> = [];
+
+    for (const member of relation.members ?? []) {
+      if (member.type === "way") {
+        const nodeIds = wayMap.get(member.ref);
+        if (!nodeIds) {
+          continue;
+        }
+        const path = nodeIds
+          .map((nodeId) => nodeMap.get(nodeId))
+          .filter(Boolean)
+          .map((node) => ({
+            latitude: node!.latitude,
+            longitude: node!.longitude,
+          }));
+
+        if (path.length >= 2) {
+          paths.push(path);
+        }
+        continue;
+      }
+
+      if (member.type === "relation") {
+        const nested = relationMap.get(member.ref);
+        if (!nested) {
+          continue;
+        }
+        paths.push(...collectRoutePaths(nested, visitedRelations));
+      }
+    }
+
+    return paths;
+  }
+
+  for (const element of routesPayload.elements) {
+    if (element.type !== "relation" || element.tags?.route !== "subway") {
+      continue;
+    }
+
+    if (referencedRouteRelationIds.has(element.id)) {
+      continue;
+    }
+
+    const paths = collectRoutePaths(element);
+    if (paths.length === 0) {
+      continue;
+    }
+
+    ubahnRoutes.push({
+      id: `${element.id}`,
+      name: element.tags.name || element.tags.ref || "U-Bahn route",
+      ref: element.tags.ref || "",
+      color: normalizeMapColor(element.tags.colour || element.tags.color || null),
+      paths,
+    });
+  }
+
+  await saveMunichUbahnRoutes(config, ubahnRoutes);
+  return ubahnRoutes;
+}
+
+export async function fetchMunichUbahnRoutes(config: AppConfig) {
+  if (hasTransitOverlayCache(config)) {
+    return await getMunichUbahnRoutes(config);
+  }
+
+  return await fetchMunichUbahnRoutesFromOverpass(config);
+}
+
+async function fetchTransitStopsForOrigin(config: AppConfig, origin: Coordinates) {
   const cacheKey = `${origin.latitude.toFixed(4)},${origin.longitude.toFixed(4)}`;
   const now = Date.now();
-  const cached = transitOverlayCache.get(cacheKey);
-  if (cached && cached.expiresAt > now) {
-    return cached.payload;
+
+  const failureCached = transitOverlayFailureCache.get(`${config.databasePath}::${cacheKey}`);
+  if (failureCached && failureCached.expiresAt > now) {
+    return failureCached.payload.transitStops;
   }
 
   const latDelta = metersToLatDegrees(TRANSIT_RADIUS_METERS);
@@ -558,51 +704,7 @@ out center tags;
       `.trim(),
     );
 
-    const routesPayload = await fetchOverpassJson<{
-      elements: Array<{
-        type: "node" | "way" | "relation";
-        id: number;
-        lat?: number;
-        lon?: number;
-        nodes?: number[];
-        tags?: Record<string, string>;
-        members?: Array<{
-          type: "way" | "node" | "relation";
-          ref: number;
-          role: string;
-        }>;
-      }>;
-    }>(
-      config,
-      `
-[out:json][timeout:25];
-relation["route"="subway"](${south},${west},${north},${east});
-out body;
->;
-out skel qt;
-      `.trim(),
-    );
-
-    const nodeMap = new Map<number, { latitude: number; longitude: number }>();
-    const wayMap = new Map<number, number[]>();
     const transitStops = new Map<string, TransitStop>();
-    const ubahnRoutes: UbahnRoute[] = [];
-
-    for (const element of routesPayload.elements) {
-      if (element.type === "node" && typeof element.lat === "number" && typeof element.lon === "number") {
-        nodeMap.set(element.id, {
-          latitude: element.lat,
-          longitude: element.lon,
-        });
-      }
-    }
-
-    for (const element of routesPayload.elements) {
-      if (element.type === "way" && element.nodes) {
-        wayMap.set(element.id, element.nodes);
-      }
-    }
-
     for (const element of stopsPayload.elements) {
       const latitude = element.lat ?? element.center?.lat;
       const longitude = element.lon ?? element.center?.lon;
@@ -622,69 +724,28 @@ out skel qt;
         });
       }
     }
-
-    for (const element of routesPayload.elements) {
-      if (element.type !== "relation" || element.tags?.route !== "subway") {
-        continue;
-      }
-
-      const paths: Array<Array<{ latitude: number; longitude: number }>> = [];
-      for (const member of element.members ?? []) {
-        if (member.type !== "way") {
-          continue;
-        }
-        const nodeIds = wayMap.get(member.ref);
-        if (!nodeIds) {
-          continue;
-        }
-        const path = nodeIds
-          .map((nodeId) => nodeMap.get(nodeId))
-          .filter(Boolean)
-          .map((node) => ({
-            latitude: node!.latitude,
-            longitude: node!.longitude,
-          }));
-
-        if (path.length >= 2) {
-          paths.push(path);
-        }
-      }
-
-      if (paths.length === 0) {
-        continue;
-      }
-
-      ubahnRoutes.push({
-        id: `${element.id}`,
-        name: element.tags.name || element.tags.ref || "U-Bahn route",
-        ref: element.tags.ref || "",
-        color: normalizeMapColor(element.tags.colour || element.tags.color || null),
-        paths,
-      });
-    }
-
-    const payload = {
-      transitStops: Array.from(transitStops.values()),
-      ubahnRoutes,
-    };
-    transitOverlayCache.set(cacheKey, {
-      payload,
-      expiresAt: now + TRANSIT_OVERLAY_CACHE_TTL_MS,
-    });
-    return payload;
+    return Array.from(transitStops.values());
   } catch (error) {
-    console.warn("Transit overlay fetch failed, continuing without routes", error);
-    if (cached) {
-      return cached.payload;
-    }
-    const payload = {
-      transitStops: [],
-      ubahnRoutes: [],
-    };
-    transitOverlayCache.set(cacheKey, {
-      payload,
+    console.warn("Transit stops fetch failed, continuing without stops", error);
+    const payload: TransitStop[] = [];
+    transitOverlayFailureCache.set(`${config.databasePath}::${cacheKey}`, {
+      payload: { transitStops: payload, ubahnRoutes: [] },
       expiresAt: now + TRANSIT_OVERLAY_FAILURE_TTL_MS,
     });
     return payload;
+  }
+}
+
+export async function fetchTransitMapOverlay(
+  config: AppConfig,
+  origin: Coordinates,
+): Promise<{ transitStops: TransitStop[]; ubahnRoutes: UbahnRoute[] }> {
+  const transitStops = await fetchTransitStopsForOrigin(config, origin);
+  try {
+    const ubahnRoutes = await fetchMunichUbahnRoutes(config);
+    return { transitStops, ubahnRoutes };
+  } catch (error) {
+    console.warn("Transit overlay fetch failed, continuing without routes", error);
+    return { transitStops, ubahnRoutes: [] };
   }
 }

@@ -26,6 +26,7 @@ import {
   updateCustomPoiRecord,
 } from "./db";
 import { loadConfig } from "./config";
+import { MUNICH_CITY_CENTER, MUNICH_GREATER_AREA_BOUNDS } from "./munich";
 import {
   CATEGORY_LABELS,
   buildCustomPoiScore,
@@ -71,12 +72,6 @@ const STANDARD_CATEGORIES: StandardPoiCategory[] = [
   "cafe",
   "park_or_river",
 ];
-
-const MUNICH_GREATER_AREA_BOUNDS: [[number, number], [number, number]] = [
-  [11.05, 47.95],
-  [12.05, 48.42],
-];
-const MUNICH_CITY_CENTER: [number, number] = [11.576124, 48.137154];
 const JAWG_ALLOWED_HOSTS = new Set(["api.jawg.io", "tile.jawg.io"]);
 
 type MapAssetKind = "tile" | "glyph" | "sprite" | "source";
