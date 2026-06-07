@@ -1,0 +1,271 @@
+import type {
+  Apartment,
+  BootstrapPayload,
+  CustomPoi,
+  ManagedPoi,
+  MapConfig,
+  MapPayload,
+  PoiCategory,
+  PoiRecord,
+  PoiManagementPayload,
+  StandardPoiCategory,
+  WeightSettings,
+} from "../shared/types";
+import {
+  filterIndexedManagedPois,
+  indexManagedPois,
+  managedPoiKey,
+  type IndexedManagedPoi,
+  type PoiStatusFilter,
+} from "./poiFilters";
+
+export type EditorMode = "create" | "edit";
+export type PanelView = "apartment" | "custom-poi" | "settings";
+export type SortMode = "score" | "warmmiete" | "pricePerSqm" | "rooms" | "newest";
+export type MainView = "list" | "map" | "pois";
+
+export type AppState = BootstrapPayload & {
+  activeView: MainView;
+  selectedApartmentId: number | null;
+  panelView: PanelView;
+  apartmentEditorMode: EditorMode;
+  editingApartmentId: number | null;
+  editingCustomPoiId: number | null;
+  sortMode: SortMode;
+  mapPayload: MapPayload | null;
+  visiblePoiCategories: Record<StandardPoiCategory, boolean>;
+  showPoiList: boolean;
+  selectedSportTags: string[];
+  showTransitStops: boolean;
+  showUbahnRoutes: boolean;
+  pois: ManagedPoi[];
+  indexedPois: IndexedManagedPoi[];
+  poisLoaded: boolean;
+  poiSearch: string;
+  poiStatusFilter: PoiStatusFilter;
+  visibleManagedPoiCategories: Record<PoiCategory, boolean>;
+  selectedManagedSportTags: string[];
+  selectedManagedPoiKeys: string[];
+};
+
+export type LngLatTuple = [number, number];
+export type MapFeatureProperties = Record<string, string | number | boolean | null>;
+export type FeatureCollection = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    id?: string;
+    geometry:
+      | { type: "Point"; coordinates: LngLatTuple }
+      | { type: "LineString"; coordinates: LngLatTuple[] };
+    properties: MapFeatureProperties;
+  }>;
+};
+
+const rootElement = document.querySelector("#app");
+if (!rootElement) {
+  throw new Error("App root not found");
+}
+export const root = rootElement as HTMLDivElement;
+
+export const initialView: MainView =
+  window.location.pathname === "/map"
+    ? "map"
+    : window.location.pathname === "/pois"
+      ? "pois"
+      : "list";
+
+export const state: AppState = {
+  apartments: [],
+  customPois: [],
+  settings: {
+    pricePerSqm: 1.3,
+    rooms: 0.9,
+    supermarket: 1,
+    sportStudio: 1,
+    ubahn: 1.2,
+    cafe: 0.7,
+    parkOrRiver: 0.8,
+    customPoi: 1.1,
+  },
+  mapConfig: {
+    available: false,
+    unavailableReason: "Map API configuration is missing.",
+    styleUrl: null,
+  },
+  activeView: initialView,
+  selectedApartmentId: null,
+  panelView: "apartment",
+  apartmentEditorMode: "create",
+  editingApartmentId: null,
+  editingCustomPoiId: null,
+  sortMode: "score",
+  mapPayload: null,
+  visiblePoiCategories: {
+    supermarket: true,
+    sport_studio: true,
+    ubahn: true,
+    cafe: true,
+    park_or_river: true,
+  },
+  showPoiList: true,
+  selectedSportTags: [],
+  showTransitStops: true,
+  showUbahnRoutes: true,
+  pois: [],
+  indexedPois: [],
+  poisLoaded: false,
+  poiSearch: "",
+  poiStatusFilter: "all",
+  visibleManagedPoiCategories: {
+    supermarket: true,
+    sport_studio: true,
+    ubahn: true,
+    cafe: true,
+    park_or_river: true,
+    custom: true,
+  },
+  selectedManagedSportTags: [],
+  selectedManagedPoiKeys: [],
+};
+
+export const EMPTY_FEATURE_COLLECTION: FeatureCollection = {
+  type: "FeatureCollection",
+  features: [],
+};
+
+export const APARTMENT_SOURCE_ID = "apartment";
+export const POI_SOURCE_ID = "nearby-pois";
+export const CUSTOM_POI_SOURCE_ID = "custom-pois";
+export const TRANSIT_SOURCE_ID = "transit-stops";
+export const UBAHN_STATION_SOURCE_ID = "ubahn-stations";
+export const UBAHN_SOURCE_ID = "ubahn-routes";
+
+export const APARTMENT_LAYER_ID = "apartment-layer";
+export const POI_LAYER_ID = "poi-layer";
+export const CUSTOM_POI_LAYER_ID = "custom-poi-layer";
+export const TRANSIT_LAYER_ID = "transit-layer";
+export const UBAHN_STATION_LAYER_ID = "ubahn-station-layer";
+export const UBAHN_LAYER_ID = "ubahn-layer";
+
+export const POI_LABELS: Record<StandardPoiCategory, string> = {
+  supermarket: "Supermarkets",
+  sport_studio: "Sport studios",
+  ubahn: "U-Bahn",
+  cafe: "Cafes",
+  park_or_river: "Parks / river",
+};
+
+export const MANAGED_POI_CATEGORY_ORDER: PoiCategory[] = [
+  "sport_studio",
+  "supermarket",
+  "custom",
+  "ubahn",
+  "cafe",
+  "park_or_river",
+];
+
+export const MANAGED_POI_LABELS: Record<PoiCategory, string> = {
+  supermarket: "Supermarkets",
+  sport_studio: "Sport studios",
+  ubahn: "U-Bahn",
+  cafe: "Cafes",
+  park_or_river: "Parks / river",
+  custom: "Custom POIs",
+};
+
+export function currentApartment() {
+  return state.apartments.find((apartment) => apartment.id === state.selectedApartmentId) ?? null;
+}
+
+export function currentPoiFilters() {
+  return {
+    search: state.poiSearch,
+    status: state.poiStatusFilter,
+    visibleCategories: state.visibleManagedPoiCategories,
+    selectedSportTags: state.selectedManagedSportTags,
+  };
+}
+
+export function filteredManagedPoiEntries() {
+  return filterIndexedManagedPois(state.indexedPois, currentPoiFilters());
+}
+
+export function filteredManagedPois() {
+  return filteredManagedPoiEntries().map(({ poi }) => poi);
+}
+
+export function selectedManagedPois() {
+  const keys = new Set(state.selectedManagedPoiKeys);
+  return filteredManagedPoiEntries()
+    .filter((entry) => keys.has(entry.key))
+    .map(({ poi }) => poi);
+}
+
+export function visibleManagedPoiSelectionState() {
+  const visibleKeys = filteredManagedPoiEntries().map(({ key }) => key);
+  const selectedKeys = new Set(state.selectedManagedPoiKeys);
+  const selectedCount = visibleKeys.filter((key) => selectedKeys.has(key)).length;
+
+  return {
+    total: visibleKeys.length,
+    selected: selectedCount,
+    allSelected: visibleKeys.length > 0 && selectedCount === visibleKeys.length,
+  };
+}
+
+export function visibleNearbyPois() {
+  const payload = state.mapPayload;
+  if (!payload) {
+    return [] as PoiRecord[];
+  }
+
+  return payload.nearbyPois.filter((poi) => {
+    if (!state.visiblePoiCategories[poi.category]) {
+      return false;
+    }
+
+    if (poi.category === "sport_studio" && state.selectedSportTags.length > 0) {
+      return poi.tags.some((tag) => state.selectedSportTags.includes(tag));
+    }
+
+    return true;
+  });
+}
+
+export function groupedVisiblePois() {
+  const grouped = new Map<StandardPoiCategory, PoiRecord[]>();
+  for (const poi of visibleNearbyPois()) {
+    const bucket = grouped.get(poi.category) ?? [];
+    bucket.push(poi);
+    grouped.set(poi.category, bucket);
+  }
+  return grouped;
+}
+
+export function sortedApartments() {
+  const apartments = [...state.apartments];
+  apartments.sort((left, right) => {
+    switch (state.sortMode) {
+      case "warmmiete":
+        return left.warmmiete - right.warmmiete;
+      case "pricePerSqm":
+        return (
+          (left.scoring.pricePerSqmValue ?? Number.POSITIVE_INFINITY) -
+          (right.scoring.pricePerSqmValue ?? Number.POSITIVE_INFINITY)
+        );
+      case "rooms":
+        return right.roomCount - left.roomCount;
+      case "newest":
+        return right.createdAt.localeCompare(left.createdAt);
+      case "score":
+      default:
+        return right.totalScore - left.totalScore;
+    }
+  });
+  return apartments;
+}
+
+export function visibleManagedPoiKeys() {
+  return filteredManagedPoiEntries().map(({ key }) => key);
+}

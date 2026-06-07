@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
-import type { AppConfig, TransitStop, UbahnRoute } from "./types";
+import type { AppConfig, TransitStop, UbahnRoute } from "../shared/types";
 
 export type MunichTransitOverlayCache = {
   version: 2;

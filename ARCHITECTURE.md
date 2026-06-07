@@ -20,14 +20,24 @@ It combines:
 The app is intentionally simple:
 
 - `index.ts`: Bun entrypoint, route registration, JSON helpers, route-to-handler wiring
-- `index.html`: single HTML shell imported directly by Bun
-- `src/frontend.ts`: client app state, rendering, event binding, MapLibre integration
-- `src/server.ts`: application orchestration, validation, rescoring, Jawg style/resource proxying
-- `src/db.ts`: SQLite schema creation plus all persistence helpers
-- `src/services.ts`: remote integrations, caching, seeding, routing, geocoding, overlays, uploads
-- `src/scoring.ts`: pure scoring math and default weights
-- `src/types.ts`: shared API and domain types
-- `src/poiFilters.ts`: pure POI management filtering/indexing logic
+- `src/frontend/index.html`: single HTML shell imported directly by Bun
+- `src/frontend/main.ts`: CSS imports and boot sequence
+- `src/frontend/state.ts`: client-side AppState type, initial values, constants, pure accessor helpers
+- `src/frontend/helpers.ts`: formatting, API fetch, popup HTML, map utilities
+- `src/frontend/mapFeatures.ts`: GeoJSON feature collection builders for map layers
+- `src/frontend/map.ts`: MapLibre lifecycle, source/layer management, popups, fit-to-bounds
+- `src/frontend/views.ts`: all HTML rendering functions (list, map, POI views, forms, sidebar)
+- `src/frontend/events.ts`: main render orchestrator, event binding, data loading/refresh logic
+- `src/frontend/poiFilters.ts`: pure POI management filtering/indexing logic
+- `src/backend/server.ts`: application orchestration, validation, rescoring, Jawg style/resource proxying
+- `src/backend/db.ts`: SQLite schema creation plus all persistence helpers
+- `src/backend/services.ts`: remote integrations, caching, seeding, routing, geocoding, overlays, uploads
+- `src/backend/scoring.ts`: pure scoring math and default weights
+- `src/backend/routeSimplifier.ts`: polyline simplification for U-Bahn routes
+- `src/backend/transitOverlayCache.ts`: Munich U-Bahn transit overlay caching
+- `src/shared/types.ts`: shared API and domain types
+- `src/shared/config.ts`: environment-driven configuration loading
+- `src/shared/munich.ts`: Munich city center and greater-area bounds constants
 
 There is no framework split between API server and SPA server. Bun serves both the shell and the JSON endpoints in one process.
 
@@ -220,15 +230,17 @@ Important consequence: browser code must never use direct third-party tile URLs.
 
 ## Frontend structure
 
-`src/frontend.ts` is a manual client app, not React/Vue/etc.
+The frontend is split across several modules under `src/frontend/`, not a single framework like React/Vue.
 
-It owns:
+Key modules:
 
-- shared application state
-- HTML string rendering
-- event binding after render
-- map rendering and sidebar updates
-- API fetch helpers
+- `state.ts`: shared application state (AppState), type definitions, constants, and pure accessor helpers
+- `helpers.ts`: utility functions (escaping, formatting, API fetch) and map helpers
+- `mapFeatures.ts`: GeoJSON feature collection builders that transform state payloads into MapLibre data
+- `map.ts`: MapLibre lifecycle management (create, destroy, sync sources, fit bounds)
+- `views.ts`: HTML string rendering for all views, forms, sidebars, and legends
+- `events.ts`: main `render()` orchestrator, event binding for all views, data loading/refresh
+- `poiFilters.ts`: pure POI filtering and search indexing logic
 
 Main views:
 
@@ -304,13 +316,23 @@ Do not try to derive map behavior purely from `/api/bootstrap`. The focused map 
 
 Prefer these boundaries when making changes:
 
-- `types.ts`: shared contracts only
-- `db.ts`: database access and schema only
-- `services.ts`: remote calls, caching, external-data translation, file upload mechanics
-- `server.ts`: orchestration, input validation, state-changing workflows, API payload assembly
-- `scoring.ts`: pure calculations only
-- `frontend.ts`: browser state/rendering/event handling only
-- `poiFilters.ts`: pure POI page filtering/indexing logic only
+- `src/shared/types.ts`: shared contracts only
+- `src/shared/config.ts`: environment-driven configuration
+- `src/shared/munich.ts`: geographic constants
+- `src/backend/db.ts`: database access and schema only
+- `src/backend/services.ts`: remote calls, caching, external-data translation, file upload mechanics
+- `src/backend/server.ts`: orchestration, input validation, state-changing workflows, API payload assembly
+- `src/backend/scoring.ts`: pure calculations only
+- `src/backend/routeSimplifier.ts`: polyline simplification
+- `src/backend/transitOverlayCache.ts`: U-Bahn overlay caching
+- `src/frontend/main.ts`: boot sequence and CSS imports only
+- `src/frontend/state.ts`: browser state type definitions, initial values, constants, and pure accessor helpers
+- `src/frontend/helpers.ts`: pure utility functions and API fetch helpers
+- `src/frontend/mapFeatures.ts`: GeoJSON feature collection builders from state
+- `src/frontend/map.ts`: MapLibre map lifecycle, layer management, and rendering
+- `src/frontend/views.ts`: HTML string rendering for all views, forms, and sidebars
+- `src/frontend/events.ts`: render orchestration, event binding, and data loading/refresh
+- `src/frontend/poiFilters.ts`: pure POI page filtering/indexing logic only
 
 If a change crosses several of these layers, keep the responsibilities separated instead of collapsing logic into one file.
 
@@ -318,14 +340,14 @@ If a change crosses several of these layers, keep the responsibilities separated
 
 Current automated coverage is strongest for pure logic and DB behavior:
 
-- `scoring.test.ts`
-- `db.test.ts`
-- `poiFilters.test.ts`
-- `server.test.ts`
+- `src/backend/scoring.test.ts`
+- `src/backend/db.test.ts`
+- `src/frontend/poiFilters.test.ts`
+- `src/backend/server.test.ts`
 
 There is also dedicated browser coverage for the map view:
 
-- `mapView.browser.test.ts`
+- `src/frontend/mapView.browser.test.ts`
 - run it explicitly with `bun run test:browser`
 
 When extending the app, prefer tests around:

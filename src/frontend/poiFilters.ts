@@ -1,4 +1,4 @@
-import type { ManagedPoi, PoiCategory } from "./types";
+import type { ManagedPoi, PoiCategory } from "../shared/types";
 
 export type PoiStatusFilter = "all" | "active" | "inactive";
 

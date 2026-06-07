@@ -3,13 +3,13 @@ import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import appShell from "../index.html";
+import appShell from "./index.html";
 import {
   createDatabase,
   insertApartment,
   setApartmentScoring,
   updateApartmentCoordinates,
-} from "./db";
+} from "../backend/db";
 import {
   getApartmentMapData,
   getBootstrapPayload,
@@ -18,8 +18,8 @@ import {
   serveMapGlyph,
   serveMapSprite,
   serveMapSource,
-} from "./server";
-import type { AppConfig, ApartmentScoreSnapshot } from "./types";
+} from "../backend/server";
+import type { AppConfig, ApartmentScoreSnapshot } from "../shared/types";
 
 const runBrowserTests = process.env.RUN_BROWSER_TESTS === "1";
 const browserTest = runBrowserTests ? test : test.skip;

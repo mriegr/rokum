@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 import { getTransitOverlayCachePath, loadMunichTransitOverlayCache, saveMunichUbahnRoutes } from "./transitOverlayCache";
-import type { AppConfig, UbahnRoute } from "./types";
+import type { AppConfig, UbahnRoute } from "../shared/types";
 
 const cachePaths: string[] = [];
 

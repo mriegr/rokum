@@ -1,4 +1,4 @@
-import appShell from "./index.html";
+import appShell from "./src/frontend/index.html";
 import {
   createApartment,
   createCustomPoi,
@@ -21,7 +21,7 @@ import {
   updatePoiStatuses,
   updateSettings,
   uploadApartmentPhotos,
-} from "./src/server";
+} from "./src/backend/server";
 
 const app = await initApp();
 

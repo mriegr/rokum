@@ -6,7 +6,7 @@ import type {
   StandardPoiScore,
   TravelMetrics,
   WeightSettings,
-} from "./types";
+} from "../shared/types";
 
 export const CATEGORY_LABELS: Record<StandardPoiCategory, string> = {
   supermarket: "Supermarket",

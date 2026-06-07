@@ -11,7 +11,7 @@ import {
   listActivePoisByCategory,
   listCustomPois,
 } from "./db";
-import type { AppConfig } from "./types";
+import type { AppConfig } from "../shared/types";
 
 const databasePaths: string[] = [];
 

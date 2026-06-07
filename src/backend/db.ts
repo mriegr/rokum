@@ -12,7 +12,7 @@ import type {
   StandardPoiCategory,
   StandardPoiScore,
   WeightSettings,
-} from "./types";
+} from "../shared/types";
 import { DEFAULT_WEIGHTS } from "./scoring";
 
 type SqlDatabase = Database;

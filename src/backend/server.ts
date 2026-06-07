@@ -25,8 +25,8 @@ import {
   updateCustomPoiCoordinates,
   updateCustomPoiRecord,
 } from "./db";
-import { loadConfig } from "./config";
-import { MUNICH_CITY_CENTER, MUNICH_GREATER_AREA_BOUNDS } from "./munich";
+import { loadConfig } from "../shared/config";
+import { MUNICH_CITY_CENTER, MUNICH_GREATER_AREA_BOUNDS } from "../shared/munich";
 import {
   CATEGORY_LABELS,
   buildCustomPoiScore,
@@ -63,7 +63,7 @@ import type {
   StandardPoiCategory,
   StandardPoiScore,
   WeightSettings,
-} from "./types";
+} from "../shared/types";
 
 const STANDARD_CATEGORIES: StandardPoiCategory[] = [
   "supermarket",

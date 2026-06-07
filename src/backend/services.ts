@@ -16,8 +16,8 @@ import type {
   TransitStop,
   TravelMetrics,
   UbahnRoute,
-} from "./types";
-import { MUNICH_GREATER_AREA_BOUNDS } from "./munich";
+} from "../shared/types";
+import { MUNICH_GREATER_AREA_BOUNDS } from "../shared/munich";
 import {
   getMunichUbahnStations,
   getMunichUbahnRoutes,

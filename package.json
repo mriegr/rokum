@@ -7,7 +7,7 @@
     "dev": "bun --hot index.ts",
     "start": "bun index.ts",
     "test": "bun test",
-    "test:browser": "RUN_BROWSER_TESTS=1 bun test src/mapView.browser.test.ts",
+    "test:browser": "RUN_BROWSER_TESTS=1 bun test src/frontend/mapView.browser.test.ts",
     "transit:cache": "bun scripts/cache-transit-overlay.ts"
   },
   "devDependencies": {

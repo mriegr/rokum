@@ -8,7 +8,7 @@ import {
   serveMapStyle,
   serveMapTile,
 } from "./server";
-import type { AppConfig } from "./types";
+import type { AppConfig } from "../shared/types";
 
 const originalFetch = globalThis.fetch;
 const databasePaths: string[] = [];

@@ -7,7 +7,7 @@ import {
   summarizeSportTags,
   type PoiFilterOptions,
 } from "./poiFilters";
-import type { ManagedPoi, PoiCategory } from "./types";
+import type { ManagedPoi, PoiCategory } from "../shared/types";
 
 function poi(overrides: Partial<ManagedPoi> & Pick<ManagedPoi, "id" | "kind" | "category" | "name">): ManagedPoi {
   return {

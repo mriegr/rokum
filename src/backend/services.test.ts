@@ -1,7 +1,7 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { fetchTransitMapOverlay } from "./services";
-import type { AppConfig } from "./types";
+import type { AppConfig } from "../shared/types";
 
 const originalFetch = globalThis.fetch;
 
