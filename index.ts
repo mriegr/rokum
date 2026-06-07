@@ -7,11 +7,14 @@ import {
   deleteCustomPoi,
   getApartmentMapData,
   getBootstrapPayload,
+  getPoiManagementPayload,
   getSettings,
   initApp,
   refreshApartmentScores,
+  serveMapTile,
   updateApartment,
   updateCustomPoi,
+  updatePoiStatuses,
   updateSettings,
   uploadApartmentPhotos,
 } from "./src/server";
@@ -40,6 +43,7 @@ Bun.serve({
   routes: {
     "/": appShell,
     "/map": appShell,
+    "/pois": appShell,
   },
   development: {
     hmr: true,
@@ -59,6 +63,18 @@ Bun.serve({
     }
 
     try {
+      const mapTileMatch = pathname.match(/^\/api\/map-tiles\/(\d+)\/(\d+)\/(\d+)(@2x)?\.png$/);
+      if (mapTileMatch && method === "GET") {
+        const [, z, x, y, retina] = mapTileMatch;
+        return await serveMapTile(
+          app,
+          z!,
+          x!,
+          y!,
+          Boolean(retina),
+        );
+      }
+
       if (pathname === "/api/bootstrap" && method === "GET") {
         return json(getBootstrapPayload(app));
       }
@@ -70,6 +86,15 @@ Bun.serve({
       if (pathname === "/api/settings" && method === "PUT") {
         const payload = await request.json();
         return json(await updateSettings(app, payload));
+      }
+
+      if (pathname === "/api/pois" && method === "GET") {
+        return json(getPoiManagementPayload(app));
+      }
+
+      if (pathname === "/api/pois/status" && method === "PUT") {
+        const payload = await request.json();
+        return json(await updatePoiStatuses(app, payload));
       }
 
       if (pathname === "/api/apartments" && method === "POST") {

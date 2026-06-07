@@ -3,10 +3,10 @@ import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
 import {
   addApartmentPhoto,
+  listActivePois,
+  listActivePoisByCategory,
   insertOrIgnorePoi,
-  listAllPois,
   listCustomPois,
-  listPoisByCategory,
 } from "./db";
 import type {
   AppConfig,
@@ -26,6 +26,23 @@ type Coordinates = {
 const STANDARD_RADIUS_METERS = 1800;
 const TRANSIT_RADIUS_METERS = 3200;
 const USER_AGENT = "rokum-apartment-shortlist/1.0";
+const OVERPASS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const TRANSIT_OVERLAY_CACHE_TTL_MS = 30 * 60 * 1000;
+const TRANSIT_OVERLAY_FAILURE_TTL_MS = 10 * 60 * 1000;
+
+type OverpassCacheEntry = {
+  expiresAt: number;
+  payload: unknown;
+};
+
+const overpassCache = new Map<string, OverpassCacheEntry>();
+const transitOverlayCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    payload: { transitStops: TransitStop[]; ubahnRoutes: UbahnRoute[] };
+  }
+>();
 
 function toRadians(value: number) {
   return (value * Math.PI) / 180;
@@ -80,6 +97,13 @@ async function fetchJson<T>(url: string, init?: RequestInit) {
 }
 
 async function fetchOverpassJson<T>(config: AppConfig, query: string) {
+  const cacheKey = `${config.overpassBaseUrl}\n${query}`;
+  const now = Date.now();
+  const cached = overpassCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.payload as T;
+  }
+
   const response = await fetch(config.overpassBaseUrl, {
     method: "POST",
     headers: {
@@ -91,10 +115,18 @@ async function fetchOverpassJson<T>(config: AppConfig, query: string) {
   });
 
   if (!response.ok) {
+    if (cached) {
+      return cached.payload as T;
+    }
     throw new Error(`Overpass request failed: ${response.status}`);
   }
 
-  return (await response.json()) as T;
+  const payload = (await response.json()) as T;
+  overpassCache.set(cacheKey, {
+    payload,
+    expiresAt: now + OVERPASS_CACHE_TTL_MS,
+  });
+  return payload;
 }
 
 export async function geocodeAddress(config: AppConfig, address: string) {
@@ -181,6 +213,7 @@ async function fetchOverpassPois(
         category,
         name,
         address,
+        isActive: true,
         latitude: elementLatitude,
         longitude: elementLongitude,
         source: "overpass",
@@ -208,7 +241,7 @@ export async function ensurePoisForCategory(
   category: StandardPoiCategory,
   origin: Coordinates,
 ) {
-  const localCandidates = nearestPois(listPoisByCategory(database, category), origin);
+  const localCandidates = nearestPois(listActivePoisByCategory(database, category), origin);
   if (localCandidates.length >= 3) {
     return localCandidates;
   }
@@ -228,7 +261,7 @@ export async function ensurePoisForCategory(
     console.warn(`POI fetch failed for ${category}, continuing with local cache`, error);
   }
 
-  return nearestPois(listPoisByCategory(database, category), origin);
+  return nearestPois(listActivePoisByCategory(database, category), origin);
 }
 
 export async function routeWalking(
@@ -371,6 +404,7 @@ export async function seedSportStudios(database: Database) {
       category: "sport_studio",
       name: venue.name,
       address,
+      isActive: true,
       latitude,
       longitude,
       source: "urbansportsclub",
@@ -436,7 +470,7 @@ export function listNearbyMapPois(
   origin: Coordinates,
   radiusMeters = 3500,
 ) {
-  return nearbyPois(listAllPois(database), origin, radiusMeters);
+  return nearbyPois(listActivePois(database), origin, radiusMeters);
 }
 
 function metersToLatDegrees(meters: number) {
@@ -460,6 +494,13 @@ export async function fetchTransitMapOverlay(
   config: AppConfig,
   origin: Coordinates,
 ): Promise<{ transitStops: TransitStop[]; ubahnRoutes: UbahnRoute[] }> {
+  const cacheKey = `${origin.latitude.toFixed(4)},${origin.longitude.toFixed(4)}`;
+  const now = Date.now();
+  const cached = transitOverlayCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.payload;
+  }
+
   const latDelta = metersToLatDegrees(TRANSIT_RADIUS_METERS);
   const lonDelta = metersToLonDegrees(TRANSIT_RADIUS_METERS, origin.latitude);
   const south = origin.latitude - latDelta;
@@ -597,15 +638,28 @@ out skel qt;
       });
     }
 
-    return {
+    const payload = {
       transitStops: Array.from(transitStops.values()),
       ubahnRoutes,
     };
+    transitOverlayCache.set(cacheKey, {
+      payload,
+      expiresAt: now + TRANSIT_OVERLAY_CACHE_TTL_MS,
+    });
+    return payload;
   } catch (error) {
     console.warn("Transit overlay fetch failed, continuing without routes", error);
-    return {
+    if (cached) {
+      return cached.payload;
+    }
+    const payload = {
       transitStops: [],
       ubahnRoutes: [],
     };
+    transitOverlayCache.set(cacheKey, {
+      payload,
+      expiresAt: now + TRANSIT_OVERLAY_FAILURE_TTL_MS,
+    });
+    return payload;
   }
 }

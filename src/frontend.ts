@@ -3,11 +3,23 @@ import type {
   Apartment,
   BootstrapPayload,
   CustomPoi,
+  ManagedPoi,
   PoiRecord,
   MapPayload,
+  PoiManagementPayload,
+  PoiCategory,
   StandardPoiCategory,
   WeightSettings,
 } from "./types";
+import {
+  filterIndexedManagedPois,
+  indexManagedPois,
+  managedPoiKey,
+  summarizePoiCategories,
+  summarizeSportTags,
+  type IndexedManagedPoi,
+  type PoiStatusFilter,
+} from "./poiFilters";
 
 declare global {
   interface Window {
@@ -18,9 +30,10 @@ declare global {
 type EditorMode = "create" | "edit";
 type PanelView = "apartment" | "custom-poi" | "settings";
 type SortMode = "score" | "warmmiete" | "pricePerSqm" | "rooms" | "newest";
+type MainView = "list" | "map" | "pois";
 
 type AppState = BootstrapPayload & {
-  activeView: "list" | "map";
+  activeView: MainView;
   selectedApartmentId: number | null;
   panelView: PanelView;
   apartmentEditorMode: EditorMode;
@@ -33,6 +46,14 @@ type AppState = BootstrapPayload & {
   selectedSportTags: string[];
   showTransitStops: boolean;
   showUbahnRoutes: boolean;
+  pois: ManagedPoi[];
+  indexedPois: IndexedManagedPoi[];
+  poisLoaded: boolean;
+  poiSearch: string;
+  poiStatusFilter: PoiStatusFilter;
+  visibleManagedPoiCategories: Record<PoiCategory, boolean>;
+  selectedManagedSportTags: string[];
+  selectedManagedPoiKeys: string[];
 };
 
 const rootElement = document.querySelector("#app");
@@ -41,7 +62,12 @@ if (!rootElement) {
 }
 const root = rootElement as HTMLDivElement;
 
-const initialView = window.location.pathname === "/map" ? "map" : "list";
+const initialView: MainView =
+  window.location.pathname === "/map"
+    ? "map"
+    : window.location.pathname === "/pois"
+      ? "pois"
+      : "list";
 
 const state: AppState = {
   apartments: [],
@@ -55,6 +81,11 @@ const state: AppState = {
     cafe: 0.7,
     parkOrRiver: 0.8,
     customPoi: 1.1,
+  },
+  mapConfig: {
+    tileUrl: "/api/map-tiles/{z}/{x}/{y}{r}.png",
+    attribution: "&copy; OpenStreetMap contributors",
+    maxZoom: 19,
   },
   activeView: initialView,
   selectedApartmentId: null,
@@ -75,6 +106,21 @@ const state: AppState = {
   selectedSportTags: [],
   showTransitStops: true,
   showUbahnRoutes: true,
+  pois: [],
+  indexedPois: [],
+  poisLoaded: false,
+  poiSearch: "",
+  poiStatusFilter: "all",
+  visibleManagedPoiCategories: {
+    supermarket: true,
+    sport_studio: true,
+    ubahn: true,
+    cafe: true,
+    park_or_river: true,
+    custom: true,
+  },
+  selectedManagedSportTags: [],
+  selectedManagedPoiKeys: [],
 };
 
 let map: any = null;
@@ -82,12 +128,36 @@ let markers: any[] = [];
 let mapTileLayer: any = null;
 let routeLayers: any[] = [];
 
+const MUNICH_GREATER_AREA_BOUNDS: [[number, number], [number, number]] = [
+  [47.95, 11.05],
+  [48.42, 12.05],
+];
+const MUNICH_CITY_CENTER: [number, number] = [48.137154, 11.576124];
+
 const POI_LABELS: Record<StandardPoiCategory, string> = {
   supermarket: "Supermarkets",
   sport_studio: "Sport studios",
   ubahn: "U-Bahn",
   cafe: "Cafes",
   park_or_river: "Parks / river",
+};
+
+const MANAGED_POI_CATEGORY_ORDER: PoiCategory[] = [
+  "sport_studio",
+  "supermarket",
+  "custom",
+  "ubahn",
+  "cafe",
+  "park_or_river",
+];
+
+const MANAGED_POI_LABELS: Record<PoiCategory, string> = {
+  supermarket: "Supermarkets",
+  sport_studio: "Sport studios",
+  ubahn: "U-Bahn",
+  cafe: "Cafes",
+  park_or_river: "Parks / river",
+  custom: "Custom POIs",
 };
 
 function escapeHtml(value: string) {
@@ -118,6 +188,44 @@ function scoreTone(value: number) {
 
 function currentApartment() {
   return state.apartments.find((apartment) => apartment.id === state.selectedApartmentId) ?? null;
+}
+
+let poiSearchUpdateTimer: number | null = null;
+
+function currentPoiFilters() {
+  return {
+    search: state.poiSearch,
+    status: state.poiStatusFilter,
+    visibleCategories: state.visibleManagedPoiCategories,
+    selectedSportTags: state.selectedManagedSportTags,
+  };
+}
+
+function filteredManagedPoiEntries() {
+  return filterIndexedManagedPois(state.indexedPois, currentPoiFilters());
+}
+
+function filteredManagedPois() {
+  return filteredManagedPoiEntries().map(({ poi }) => poi);
+}
+
+function selectedManagedPois() {
+  const keys = new Set(state.selectedManagedPoiKeys);
+  return filteredManagedPoiEntries()
+    .filter((entry) => keys.has(entry.key))
+    .map(({ poi }) => poi);
+}
+
+function visibleManagedPoiSelectionState() {
+  const visibleKeys = filteredManagedPoiEntries().map(({ key }) => key);
+  const selectedKeys = new Set(state.selectedManagedPoiKeys);
+  const selectedCount = visibleKeys.filter((key) => selectedKeys.has(key)).length;
+
+  return {
+    total: visibleKeys.length,
+    selected: selectedCount,
+    allSelected: visibleKeys.length > 0 && selectedCount === visibleKeys.length,
+  };
 }
 
 function visibleNearbyPois() {
@@ -157,6 +265,26 @@ function destroyMap() {
     markers = [];
     routeLayers = [];
   }
+}
+
+function munichGreaterAreaBounds() {
+  return window.L.latLngBounds(MUNICH_GREATER_AREA_BOUNDS);
+}
+
+function constrainBoundsToMunichArea(bounds: any) {
+  const munichBounds = munichGreaterAreaBounds();
+  const padded = bounds.pad(0.12);
+  const south = Math.max(padded.getSouth(), munichBounds.getSouth());
+  const west = Math.max(padded.getWest(), munichBounds.getWest());
+  const north = Math.min(padded.getNorth(), munichBounds.getNorth());
+  const east = Math.min(padded.getEast(), munichBounds.getEast());
+  const constrained = window.L.latLngBounds([south, west], [north, east]);
+
+  if (!constrained.isValid()) {
+    return munichBounds;
+  }
+
+  return constrained;
 }
 
 function sortedApartments() {
@@ -204,6 +332,7 @@ async function loadBootstrap() {
   state.apartments = payload.apartments;
   state.customPois = payload.customPois;
   state.settings = payload.settings;
+  state.mapConfig = payload.mapConfig;
   state.selectedApartmentId = payload.apartments[0]?.id ?? null;
   render();
   if (state.activeView === "map" && state.selectedApartmentId) {
@@ -211,11 +340,54 @@ async function loadBootstrap() {
   }
 }
 
+async function loadPoiManagement(force = false) {
+  if (state.poisLoaded && !force) {
+    return;
+  }
+
+  const payload = await requestJson<PoiManagementPayload>("/api/pois");
+  state.pois = payload.pois;
+  state.indexedPois = indexManagedPois(payload.pois);
+  state.poisLoaded = true;
+  state.selectedManagedPoiKeys = state.selectedManagedPoiKeys.filter((key) =>
+    payload.pois.some((poi) => managedPoiKey(poi) === key),
+  );
+}
+
+async function refreshAppData(options?: { refreshMap?: boolean; refreshPois?: boolean }) {
+  const bootstrap = await requestJson<BootstrapPayload>("/api/bootstrap");
+  state.apartments = bootstrap.apartments;
+  state.customPois = bootstrap.customPois;
+  state.settings = bootstrap.settings;
+  state.mapConfig = bootstrap.mapConfig;
+  state.selectedApartmentId =
+    state.selectedApartmentId && bootstrap.apartments.some((item) => item.id === state.selectedApartmentId)
+      ? state.selectedApartmentId
+      : bootstrap.apartments[0]?.id ?? null;
+
+  if (options?.refreshPois) {
+    await loadPoiManagement(true);
+  }
+
+  if (options?.refreshMap && state.activeView === "map" && state.selectedApartmentId) {
+    await loadMapPayload(state.selectedApartmentId);
+    return;
+  }
+
+  render();
+}
+
 async function loadMapPayload(apartmentId: number) {
   state.mapPayload = await requestJson<MapPayload>(`/api/apartments/${apartmentId}/map`);
   state.selectedApartmentId = apartmentId;
+  if (state.activeView === "map" && document.querySelector(".map-sidebar")) {
+    updateMapSidebar();
+    queueMicrotask(() => renderMap());
+    return;
+  }
+
   render();
-  queueMicrotask(renderMap);
+  queueMicrotask(() => renderMap());
 }
 
 function apartmentFormDefaults() {
@@ -262,6 +434,7 @@ function renderTopbar() {
       <nav class="tabs">
         <button class="tab ${state.activeView === "list" ? "is-active" : ""}" data-action="switch-view" data-view="list">List</button>
         <button class="tab ${state.activeView === "map" ? "is-active" : ""}" data-action="switch-view" data-view="map">Map</button>
+        <button class="tab ${state.activeView === "pois" ? "is-active" : ""}" data-action="switch-view" data-view="pois">POIs</button>
       </nav>
     </header>
   `;
@@ -556,6 +729,283 @@ function renderListView() {
   `;
 }
 
+function renderPoiStats() {
+  const activeCount = state.pois.filter((poi) => poi.isActive).length;
+  const inactiveCount = state.pois.length - activeCount;
+  const standardCount = state.pois.filter((poi) => poi.kind === "standard").length;
+  const customCount = state.pois.length - standardCount;
+
+  return `
+    <div class="poi-stat-grid">
+      <article class="poi-stat-card">
+        <span class="eyebrow">Total</span>
+        <strong>${state.pois.length}</strong>
+        <p>All cached and custom POIs</p>
+      </article>
+      <article class="poi-stat-card">
+        <span class="eyebrow">Active</span>
+        <strong>${activeCount}</strong>
+        <p>${inactiveCount} currently excluded</p>
+      </article>
+      <article class="poi-stat-card">
+        <span class="eyebrow">Standard</span>
+        <strong>${standardCount}</strong>
+        <p>Map and routing candidates</p>
+      </article>
+      <article class="poi-stat-card">
+        <span class="eyebrow">Custom</span>
+        <strong>${customCount}</strong>
+        <p>User-managed scoring destinations</p>
+      </article>
+    </div>
+  `;
+}
+
+function renderPoiToolbar() {
+  const pois = filteredManagedPois();
+  const selection = visibleManagedPoiSelectionState();
+
+  return `
+    <div class="toolbar poi-toolbar">
+      <div>
+        <p class="toolbar-label">POI management</p>
+        <strong>${pois.length}</strong>
+        <span class="toolbar-meta">visible after current filters</span>
+      </div>
+      <div class="bulk-actions">
+        <button
+          class="ghost-button"
+          data-action="bulk-poi-status"
+          data-status="active"
+          ${selection.selected ? "" : "disabled"}
+        >
+          Enable selected
+        </button>
+        <button
+          class="ghost-button danger"
+          data-action="bulk-poi-status"
+          data-status="inactive"
+          ${selection.selected ? "" : "disabled"}
+        >
+          Disable selected
+        </button>
+        <button
+          class="ghost-button"
+          data-action="bulk-visible-poi-status"
+          data-status="active"
+          ${selection.total ? "" : "disabled"}
+        >
+          Enable all visible
+        </button>
+        <button
+          class="ghost-button danger"
+          data-action="bulk-visible-poi-status"
+          data-status="inactive"
+          ${selection.total ? "" : "disabled"}
+        >
+          Disable all visible
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function renderPoiCategoryFilters() {
+  const summaries = summarizePoiCategories(state.pois);
+
+  return `
+    <div class="poi-filter-section">
+      <div class="poi-filter-head">
+        <strong>Categories</strong>
+        <div class="mini-actions">
+          <button type="button" class="ghost-button compact-button" data-action="select-all-poi-categories">All</button>
+          <button type="button" class="ghost-button compact-button" data-action="clear-poi-categories">None</button>
+        </div>
+      </div>
+      <div class="toggle-grid">
+        ${MANAGED_POI_CATEGORY_ORDER.map((category) => {
+          const summary = summaries.get(category) ?? { total: 0, active: 0 };
+          return `
+            <label class="filter-toggle">
+              <input
+                type="checkbox"
+                data-action="toggle-managed-poi-category"
+                data-category="${category}"
+                ${state.visibleManagedPoiCategories[category] ? "checked" : ""}
+                ${summary.total ? "" : "disabled"}
+              />
+              <span>${MANAGED_POI_LABELS[category]} (${summary.active}/${summary.total})</span>
+            </label>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderPoiSportTagFilters() {
+  const tagSummaries = Array.from(summarizeSportTags(state.pois).entries()).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+
+  if (tagSummaries.length === 0) {
+    return "";
+  }
+
+  return `
+    <div class="poi-filter-section">
+      <div class="poi-filter-head">
+        <strong>Sport studio subcategories</strong>
+        <div class="mini-actions">
+          <button type="button" class="ghost-button compact-button" data-action="select-all-managed-sport-tags">All</button>
+        </div>
+      </div>
+      <div class="tag-grid">
+        ${tagSummaries
+          .map(([tag, summary]) => {
+            const isActive = state.selectedManagedSportTags.includes(tag);
+            return `
+              <button
+                type="button"
+                class="tag-chip ${isActive ? "is-active" : ""}"
+                data-action="toggle-managed-sport-tag"
+                data-tag="${escapeHtml(tag)}"
+              >
+                ${escapeHtml(tag)} (${summary.active}/${summary.total})
+              </button>
+            `;
+          })
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderPoiControls() {
+  return `
+    <div class="poi-admin-controls">
+      <label class="poi-search">
+        Search POIs
+        <input
+          id="poi-search"
+          type="search"
+          value="${escapeHtml(state.poiSearch)}"
+          placeholder="Name, address, category, source or tag"
+          autocomplete="off"
+        />
+      </label>
+      <label class="sorter">
+        Status
+        <select id="poi-status-filter">
+          <option value="all" ${state.poiStatusFilter === "all" ? "selected" : ""}>All</option>
+          <option value="active" ${state.poiStatusFilter === "active" ? "selected" : ""}>Active only</option>
+          <option value="inactive" ${state.poiStatusFilter === "inactive" ? "selected" : ""}>Inactive only</option>
+        </select>
+      </label>
+      <button type="button" class="ghost-button" data-action="reset-poi-filters">Clear filters</button>
+    </div>
+    <div class="poi-filter-grid">
+      ${renderPoiCategoryFilters()}
+      ${renderPoiSportTagFilters()}
+    </div>
+  `;
+}
+
+function renderPoiRow(poi: ManagedPoi, selectedKeys: Set<string>) {
+  const key = managedPoiKey(poi);
+  return `
+    <article class="poi-admin-row ${poi.isActive ? "" : "is-inactive"}">
+      <label class="poi-select-cell">
+        <input
+          type="checkbox"
+          data-action="toggle-managed-poi"
+          data-key="${key}"
+          ${selectedKeys.has(key) ? "checked" : ""}
+        />
+      </label>
+      <div class="poi-main-cell">
+        <div class="poi-row-head">
+          <strong>${escapeHtml(poi.name)}</strong>
+          <div class="poi-badges">
+            <span class="pill-badge">${escapeHtml(poi.categoryLabel)}</span>
+            <span class="pill-badge ${poi.kind === "custom" ? "custom" : ""}">${
+              poi.kind === "custom" ? "Custom" : "Standard"
+            }</span>
+            <span class="status-dot ${poi.isActive ? "active" : "inactive"}">${
+              poi.isActive ? "Active" : "Inactive"
+            }</span>
+          </div>
+        </div>
+        <p>${escapeHtml(poi.address || "Address unavailable")}</p>
+        ${
+          poi.tags.length
+            ? `<div class="poi-tags">${poi.tags
+                .slice(0, 4)
+                .map((tag) => `<span class="mini-tag">${escapeHtml(tag)}</span>`)
+                .join("")}</div>`
+            : ""
+        }
+        ${poi.notes ? `<p class="poi-notes">${escapeHtml(poi.notes)}</p>` : ""}
+      </div>
+      <div class="poi-meta-cell">
+        <p>${escapeHtml(poi.source ?? "n/a")}</p>
+        <p>${poi.latitude !== null && poi.longitude !== null ? `${poi.latitude.toFixed(5)}, ${poi.longitude.toFixed(5)}` : "No coordinates"}</p>
+      </div>
+      <div class="poi-actions-cell">
+        <button
+          class="ghost-button compact-button ${poi.isActive ? "danger" : ""}"
+          data-action="set-single-poi-status"
+          data-key="${key}"
+          data-status="${poi.isActive ? "inactive" : "active"}"
+        >
+          ${poi.isActive ? "Disable" : "Enable"}
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+function renderPoiTable() {
+  const pois = filteredManagedPois();
+  const selection = visibleManagedPoiSelectionState();
+  const selectedKeys = new Set(state.selectedManagedPoiKeys);
+
+  return `
+    <div class="poi-table-header">
+      <label class="select-all-toggle">
+        <input
+          id="poi-select-all"
+          type="checkbox"
+          ${selection.allSelected ? "checked" : ""}
+          ${selection.total ? "" : "disabled"}
+        />
+        <span>Select visible</span>
+      </label>
+      <p>${selection.selected} selected · ${selection.total} visible</p>
+    </div>
+    <div class="poi-table">
+      ${
+        pois.length
+          ? pois.map((poi) => renderPoiRow(poi, selectedKeys)).join("")
+          : `<div class="empty-state"><h2>No POIs match these filters</h2><p>Try a broader search or enable more categories.</p></div>`
+      }
+    </div>
+  `;
+}
+
+function renderPoisView() {
+  return `
+    <section class="content-shell poi-admin-shell">
+      <div id="poi-toolbar-region">${renderPoiToolbar()}</div>
+      <div id="poi-stats-region">${renderPoiStats()}</div>
+      <section class="poi-admin-panel">
+        <div id="poi-controls-region">${renderPoiControls()}</div>
+        <div id="poi-table-region">${renderPoiTable()}</div>
+      </section>
+    </section>
+  `;
+}
+
 function renderMapLegend() {
   const payload = state.mapPayload;
   if (!payload) {
@@ -789,43 +1239,78 @@ function renderMapView() {
   return `
     <section class="map-layout">
       <div id="map-canvas" class="map-canvas"></div>
-      <aside class="map-sidebar">
-        ${renderMapLegend()}
-      </aside>
+      <aside class="map-sidebar"></aside>
     </section>
   `;
 }
 
 function render() {
-  if (state.activeView === "map" || map) {
+  if (state.activeView !== "map" && map) {
+    destroyMap();
+  } else if (state.activeView === "map" || map) {
     destroyMap();
   }
 
   root.innerHTML = `
     <div class="app-shell">
       ${renderTopbar()}
-      ${state.activeView === "list" ? renderListView() : renderMapView()}
+      ${
+        state.activeView === "list"
+          ? renderListView()
+          : state.activeView === "map"
+            ? renderMapView()
+            : renderPoisView()
+      }
     </div>
   `;
 
   bindEvents();
 
   if (state.activeView === "map") {
+    updateMapSidebar();
     queueMicrotask(renderMap);
   }
+}
+
+function updateMapSidebar() {
+  const sidebar = document.querySelector<HTMLElement>(".map-sidebar");
+  if (!sidebar || state.activeView !== "map") {
+    return;
+  }
+
+  sidebar.innerHTML = renderMapLegend();
+  bindMapSidebarEvents(sidebar);
 }
 
 function bindEvents() {
   document.querySelectorAll<HTMLElement>("[data-action]").forEach((element) => {
     element.addEventListener("click", async (event) => {
       const target = event.currentTarget as HTMLElement;
+      if (target.closest(".map-sidebar")) {
+        return;
+      }
+      if (target.closest(".poi-admin-shell")) {
+        return;
+      }
       const action = target.dataset.action;
       if (!action) return;
 
       if (action === "switch-view") {
-        const view = target.dataset.view === "map" ? "map" : "list";
+        const view =
+          target.dataset.view === "map"
+            ? "map"
+            : target.dataset.view === "pois"
+              ? "pois"
+              : "list";
         state.activeView = view;
-        window.history.replaceState({}, "", view === "map" ? "/map" : "/");
+        window.history.replaceState(
+          {},
+          "",
+          view === "map" ? "/map" : view === "pois" ? "/pois" : "/",
+        );
+        if (view === "pois") {
+          await loadPoiManagement();
+        }
         render();
         if (view === "map" && state.selectedApartmentId) {
           await loadMapPayload(state.selectedApartmentId);
@@ -902,10 +1387,7 @@ function bindEvents() {
         if (!window.confirm("Delete this custom place?")) return;
         await requestJson(`/api/custom-pois/${customPoiId}`, { method: "DELETE" });
         state.customPois = state.customPois.filter((item) => item.id !== customPoiId);
-        const bootstrap = await requestJson<BootstrapPayload>("/api/bootstrap");
-        state.apartments = bootstrap.apartments;
-        state.settings = bootstrap.settings;
-        render();
+        await refreshAppData({ refreshMap: true, refreshPois: state.poisLoaded });
       }
 
       if (action === "delete-photo") {
@@ -925,47 +1407,8 @@ function bindEvents() {
         render();
       }
 
-      if (action === "toggle-poi-list") {
-        state.showPoiList = !state.showPoiList;
-        render();
-      }
-
-      if (action === "toggle-transit-stops") {
-        state.showTransitStops = !state.showTransitStops;
-        render();
-      }
-
-      if (action === "toggle-ubahn-routes") {
-        state.showUbahnRoutes = !state.showUbahnRoutes;
-        render();
-      }
-
-      if (action === "clear-sport-tags") {
-        state.selectedSportTags = [];
-        render();
-      }
-
-      if (action === "toggle-sport-tag") {
-        const tag = target.dataset.tag;
-        if (!tag) return;
-        state.selectedSportTags = state.selectedSportTags.includes(tag)
-          ? state.selectedSportTags.filter((value) => value !== tag)
-          : [...state.selectedSportTags, tag];
-        render();
-      }
     });
   });
-
-  document
-    .querySelectorAll<HTMLInputElement>('input[data-action="toggle-poi-category"]')
-    .forEach((input) => {
-      input.addEventListener("change", () => {
-        const category = input.dataset.category as StandardPoiCategory | undefined;
-        if (!category) return;
-        state.visiblePoiCategories[category] = input.checked;
-        render();
-      });
-    });
 
   const apartmentForm = document.querySelector<HTMLFormElement>("#apartment-form");
   apartmentForm?.addEventListener("submit", async (event) => {
@@ -1037,11 +1480,8 @@ function bindEvents() {
 
     state.customPois = state.customPois.filter((item) => item.id !== poi.id);
     state.customPois.push(poi);
-    const bootstrap = await requestJson<BootstrapPayload>("/api/bootstrap");
-    state.apartments = bootstrap.apartments;
-    state.settings = bootstrap.settings;
     state.editingCustomPoiId = poi.id;
-    render();
+    await refreshAppData({ refreshMap: true, refreshPois: state.poisLoaded });
   });
 
   const settingsForm = document.querySelector<HTMLFormElement>("#settings-form");
@@ -1067,15 +1507,292 @@ function bindEvents() {
     render();
   });
 
-  const mapApartmentSelector =
-    document.querySelector<HTMLSelectElement>("#map-apartment-selector");
+  bindPoiAdminEvents();
+}
+
+function updatePoiRegions(options?: { controls?: boolean }) {
+  if (state.activeView !== "pois") {
+    return;
+  }
+
+  const toolbarRegion = document.querySelector<HTMLElement>("#poi-toolbar-region");
+  if (toolbarRegion) {
+    toolbarRegion.innerHTML = renderPoiToolbar();
+  }
+
+  const statsRegion = document.querySelector<HTMLElement>("#poi-stats-region");
+  if (statsRegion) {
+    statsRegion.innerHTML = renderPoiStats();
+  }
+
+  if (options?.controls) {
+    const controlsRegion = document.querySelector<HTMLElement>("#poi-controls-region");
+    if (controlsRegion) {
+      controlsRegion.innerHTML = renderPoiControls();
+    }
+  }
+
+  const tableRegion = document.querySelector<HTMLElement>("#poi-table-region");
+  if (tableRegion) {
+    tableRegion.innerHTML = renderPoiTable();
+  }
+}
+
+function schedulePoiSearchUpdate() {
+  if (poiSearchUpdateTimer !== null) {
+    window.clearTimeout(poiSearchUpdateTimer);
+  }
+
+  poiSearchUpdateTimer = window.setTimeout(() => {
+    poiSearchUpdateTimer = null;
+    updatePoiRegions();
+  }, 120);
+}
+
+function visibleManagedPoiKeys() {
+  return filteredManagedPoiEntries().map(({ key }) => key);
+}
+
+function poiStatusItemsFromKeys(keys: string[]) {
+  return keys.flatMap((key) => {
+    const [kind, rawId] = key.split(":");
+    const id = Number(rawId);
+
+    if ((kind !== "standard" && kind !== "custom") || !Number.isInteger(id) || id <= 0) {
+      return [];
+    }
+
+    return [{ kind, id }];
+  });
+}
+
+async function updateManagedPoiStatuses(keys: string[], isActive: boolean) {
+  const items = poiStatusItemsFromKeys(keys);
+  if (items.length === 0) {
+    return;
+  }
+
+  await requestJson<PoiManagementPayload>("/api/pois/status", {
+    method: "PUT",
+    body: JSON.stringify({
+      isActive,
+      items,
+    }),
+  });
+  state.selectedManagedPoiKeys = [];
+  await refreshAppData({ refreshMap: true, refreshPois: true });
+}
+
+function bindPoiAdminEvents() {
+  const shell = document.querySelector<HTMLElement>(".poi-admin-shell");
+  if (!shell) {
+    return;
+  }
+
+  shell.addEventListener("input", (event) => {
+    const input = event.target as HTMLInputElement | null;
+    if (!input || input.id !== "poi-search") {
+      return;
+    }
+
+    state.poiSearch = input.value;
+    schedulePoiSearchUpdate();
+  });
+
+  shell.addEventListener("change", (event) => {
+    const input = event.target as HTMLInputElement | HTMLSelectElement | null;
+    if (!input) {
+      return;
+    }
+
+    if (input.id === "poi-status-filter") {
+      state.poiStatusFilter = input.value as PoiStatusFilter;
+      updatePoiRegions();
+      return;
+    }
+
+    if (input.id === "poi-select-all" && input instanceof HTMLInputElement) {
+      const visibleKeys = visibleManagedPoiKeys();
+      const selectedKeys = new Set(state.selectedManagedPoiKeys);
+
+      if (input.checked) {
+        for (const key of visibleKeys) {
+          selectedKeys.add(key);
+        }
+      } else {
+        for (const key of visibleKeys) {
+          selectedKeys.delete(key);
+        }
+      }
+
+      state.selectedManagedPoiKeys = Array.from(selectedKeys);
+      updatePoiRegions();
+      return;
+    }
+
+    if (input.dataset.action === "toggle-managed-poi" && input instanceof HTMLInputElement) {
+      const key = input.dataset.key;
+      if (!key) {
+        return;
+      }
+
+      state.selectedManagedPoiKeys = input.checked
+        ? [...new Set([...state.selectedManagedPoiKeys, key])]
+        : state.selectedManagedPoiKeys.filter((value) => value !== key);
+      updatePoiRegions();
+      return;
+    }
+
+    if (input.dataset.action === "toggle-managed-poi-category" && input instanceof HTMLInputElement) {
+      const category = input.dataset.category as PoiCategory | undefined;
+      if (!category) {
+        return;
+      }
+
+      state.visibleManagedPoiCategories[category] = input.checked;
+      updatePoiRegions();
+    }
+  });
+
+  shell.addEventListener("click", async (event) => {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-action]");
+    if (!target) {
+      return;
+    }
+
+    const action = target.dataset.action;
+
+    if (action === "set-single-poi-status") {
+      const key = target.dataset.key;
+      if (!key) {
+        return;
+      }
+
+      await updateManagedPoiStatuses([key], target.dataset.status === "active");
+      return;
+    }
+
+    if (action === "bulk-poi-status") {
+      await updateManagedPoiStatuses(
+        selectedManagedPois().map(managedPoiKey),
+        target.dataset.status === "active",
+      );
+      return;
+    }
+
+    if (action === "bulk-visible-poi-status") {
+      await updateManagedPoiStatuses(visibleManagedPoiKeys(), target.dataset.status === "active");
+      return;
+    }
+
+    if (action === "reset-poi-filters") {
+      state.poiSearch = "";
+      state.poiStatusFilter = "all";
+      state.visibleManagedPoiCategories = {
+        supermarket: true,
+        sport_studio: true,
+        ubahn: true,
+        cafe: true,
+        park_or_river: true,
+        custom: true,
+      };
+      state.selectedManagedSportTags = [];
+      updatePoiRegions({ controls: true });
+      return;
+    }
+
+    if (action === "select-all-poi-categories" || action === "clear-poi-categories") {
+      const isVisible = action === "select-all-poi-categories";
+      for (const category of MANAGED_POI_CATEGORY_ORDER) {
+        state.visibleManagedPoiCategories[category] = isVisible;
+      }
+      updatePoiRegions({ controls: true });
+      return;
+    }
+
+    if (action === "toggle-managed-sport-tag") {
+      const tag = target.dataset.tag;
+      if (!tag) {
+        return;
+      }
+
+      state.selectedManagedSportTags = state.selectedManagedSportTags.includes(tag)
+        ? state.selectedManagedSportTags.filter((value) => value !== tag)
+        : [...state.selectedManagedSportTags, tag];
+      updatePoiRegions({ controls: true });
+      return;
+    }
+
+    if (action === "select-all-managed-sport-tags") {
+      state.selectedManagedSportTags = [];
+      updatePoiRegions({ controls: true });
+    }
+  });
+}
+
+function bindMapSidebarEvents(sidebar: HTMLElement) {
+  sidebar.querySelectorAll<HTMLElement>("[data-action]").forEach((element) => {
+    element.addEventListener("click", async (event) => {
+      const target = event.currentTarget as HTMLElement;
+      const action = target.dataset.action;
+      if (!action) return;
+
+      if (action === "toggle-poi-list") {
+        state.showPoiList = !state.showPoiList;
+        updateMapSidebar();
+        renderMap({ preserveViewport: true });
+      }
+
+      if (action === "toggle-transit-stops") {
+        state.showTransitStops = !state.showTransitStops;
+        updateMapSidebar();
+        renderMap({ preserveViewport: true });
+      }
+
+      if (action === "toggle-ubahn-routes") {
+        state.showUbahnRoutes = !state.showUbahnRoutes;
+        updateMapSidebar();
+        renderMap({ preserveViewport: true });
+      }
+
+      if (action === "clear-sport-tags") {
+        state.selectedSportTags = [];
+        updateMapSidebar();
+        renderMap({ preserveViewport: true });
+      }
+
+      if (action === "toggle-sport-tag") {
+        const tag = target.dataset.tag;
+        if (!tag) return;
+        state.selectedSportTags = state.selectedSportTags.includes(tag)
+          ? state.selectedSportTags.filter((value) => value !== tag)
+          : [...state.selectedSportTags, tag];
+        updateMapSidebar();
+        renderMap({ preserveViewport: true });
+      }
+    });
+  });
+
+  sidebar
+    .querySelectorAll<HTMLInputElement>('input[data-action="toggle-poi-category"]')
+    .forEach((input) => {
+      input.addEventListener("change", () => {
+        const category = input.dataset.category as StandardPoiCategory | undefined;
+        if (!category) return;
+        state.visiblePoiCategories[category] = input.checked;
+        updateMapSidebar();
+        renderMap({ preserveViewport: true });
+      });
+    });
+
+  const mapApartmentSelector = sidebar.querySelector<HTMLSelectElement>("#map-apartment-selector");
   mapApartmentSelector?.addEventListener("change", async () => {
     const apartmentId = Number(mapApartmentSelector.value);
     await loadMapPayload(apartmentId);
   });
 }
 
-function renderMap() {
+function renderMap(options?: { preserveViewport?: boolean }) {
   if (state.activeView !== "map") {
     return;
   }
@@ -1093,17 +1810,24 @@ function renderMap() {
   }
 
   if (!map) {
+    const tileLayerOptions: Record<string, unknown> = {
+      maxZoom: state.mapConfig.maxZoom,
+      attribution: state.mapConfig.attribution,
+    };
+    if (state.mapConfig.subdomains?.length) {
+      tileLayerOptions.subdomains = state.mapConfig.subdomains;
+    }
+
     map = window.L.map("map-canvas", {
       zoomControl: true,
       scrollWheelZoom: true,
       zoomAnimation: false,
       fadeAnimation: false,
       markerZoomAnimation: false,
+      maxBounds: munichGreaterAreaBounds(),
+      maxBoundsViscosity: 1,
     });
-    mapTileLayer = window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors",
-    });
+    mapTileLayer = window.L.tileLayer(state.mapConfig.tileUrl, tileLayerOptions);
     mapTileLayer.addTo(map);
   }
 
@@ -1116,7 +1840,11 @@ function renderMap() {
 
   const payload = state.mapPayload;
   if (!payload || payload.apartment.latitude === null || payload.apartment.longitude === null) {
-    map.setView([48.137154, 11.576124], 12);
+    if (options?.preserveViewport) {
+      setTimeout(() => map?.invalidateSize(), 80);
+      return;
+    }
+    map.setView(MUNICH_CITY_CENTER, 11);
     return;
   }
 
@@ -1199,12 +1927,25 @@ function renderMap() {
     markers.push(marker);
   }
 
+  if (options?.preserveViewport) {
+    setTimeout(() => map?.invalidateSize(), 80);
+    return;
+  }
+
   const bounds = window.L.latLngBounds(markers.map((marker) => marker.getLatLng()));
-  map.fitBounds(bounds.pad(0.25));
+  map.fitBounds(constrainBoundsToMunichArea(bounds));
   setTimeout(() => map?.invalidateSize(), 80);
 }
 
-loadBootstrap().catch((error) => {
+async function boot() {
+  await loadBootstrap();
+  if (state.activeView === "pois") {
+    await loadPoiManagement();
+    render();
+  }
+}
+
+boot().catch((error) => {
   root.innerHTML = `<div class="fatal-error"><h1>App failed to load</h1><p>${escapeHtml(
     error instanceof Error ? error.message : "Unknown error",
   )}</p></div>`;

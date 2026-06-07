@@ -50,6 +50,7 @@ export type PoiRecord = {
   category: StandardPoiCategory;
   name: string;
   address: string;
+  isActive: boolean;
   latitude: number;
   longitude: number;
   source: string;
@@ -146,6 +147,28 @@ export type BootstrapPayload = {
   apartments: Apartment[];
   customPois: CustomPoi[];
   settings: WeightSettings;
+  mapConfig: MapConfig;
+};
+
+export type ManagedPoi = {
+  id: number;
+  kind: "standard" | "custom";
+  category: StandardPoiCategory | "custom";
+  categoryLabel: string;
+  name: string;
+  address: string;
+  isActive: boolean;
+  notes: string;
+  source: string | null;
+  tags: string[];
+  latitude: number | null;
+  longitude: number | null;
+  createdAt: string;
+  updatedAt: string | null;
+};
+
+export type PoiManagementPayload = {
+  pois: ManagedPoi[];
 };
 
 export type AppConfig = {
@@ -158,4 +181,12 @@ export type AppConfig = {
   walkingBaseUrl: string;
   transitBaseUrl: string | null;
   transitMode: "heuristic" | "otp1";
+  jawgApiKey: string | null;
+};
+
+export type MapConfig = {
+  tileUrl: string;
+  attribution: string;
+  subdomains?: string[];
+  maxZoom: number;
 };

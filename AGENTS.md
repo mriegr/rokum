@@ -1,106 +1,65 @@
 
-Default to using Bun instead of Node.js.
+Use Bun by default.
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+- Use `bun`, `bun run`, `bun test`, `bunx`, and `bun build`; do not switch to `node`, `npm`, `yarn`, `pnpm`, `vite`, `webpack`, or `ts-node` unless the repo already requires it.
+- Prefer Bun-native APIs: `Bun.serve`, `bun:sqlite`, `Bun.redis`, `Bun.sql`, built-in `WebSocket`, `Bun.file`, and `Bun.$`.
+- Bun loads `.env` automatically. Treat `.env` as secret material and never print or paste secret values.
 
-## APIs
+## Workflow
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+- Prefer a TDD loop when practical: failing test, small fix, targeted rerun, then broader verification.
+- After non-trivial changes, run `bunx tsc --noEmit` and `bun test`.
+- Prefer small local patches and avoid broad refactors unless they clearly reduce complexity or duplicate remote calls.
 
-## Testing
+## Documentation
 
-Use `bun test` to run tests.
+- Keep `README.md` focused on setup, running, and user-facing capability summaries.
+- Keep `ARCHITECTURE.md` as the internal source of truth for architecture, code structure, data flow, quirks, and operational constraints.
+- After any change that affects behavior, structure, APIs, persistence, scoring, caching, map interactions, POI handling, or developer workflow, update the relevant documentation in the same task.
+- Do not leave documentation updates as follow-up work when the code change materially changes how the system works.
+- If a change is too small to require documentation edits, make that a conscious decision and verify that existing docs still describe the system accurately.
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+## Frontend And Map
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
-```
+- For frontend entrypoints, prefer Bun HTML imports and `Bun.serve`; do not introduce Vite.
+- Do not recreate the Leaflet map instance for filter-only UI changes. Update layers and sidebar state in place.
+- Keep map tiles behind `/api/map-tiles/...`; do not expose provider URLs or API keys in the browser.
+- Preserve the current viewport for display toggles and filter changes. Refit only when apartment focus or the underlying map payload changes.
+- Keep the map constrained to the Munich greater-area bounds unless requirements change.
 
-## Frontend
+## Remote Data
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
+- Nominatim, Overpass, OSRM, OTP, and Jawg are rate-limited. Reuse cached data, avoid duplicate requests, and prefer coarse cache keys with bounded TTLs.
+- Prefer server-side caching, request deduplication, graceful fallback behavior, conservative retries, and stale-cache fallback where reasonable.
+- Do not move secret-bearing provider calls to the client when a server-side proxy is viable.
+- If a remote dependency fails or returns `429`, degrade gracefully and keep the UI usable.
 
-Server:
+## Verification
 
-```ts#index.ts
-import index from "./index.html"
+- Favor regression coverage for map state, caching behavior, and API-failure fallbacks.
+- For map changes, verify both browser behavior and network behavior.
+- Confirm filter toggles do not trigger unnecessary `/api/apartments/:id/map` reloads or fresh tile bursts.
+- If tiles are involved, verify responses come from the local proxy and include cache headers.
 
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
-```
+## Multi-Agent
 
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
+- Coordinator: plan, decompose, delegate, review outputs, and make final decisions. Do not perform large code edits or duplicate delegated implementation.
+- Implementer: always handle coding, refactoring, bug fixes, and implementation.
+- Validator: always handle validation, Playwright testing, browser debugging, visual regression analysis, screenshot inspection, trace inspection, regression testing, root-cause analysis, code review, and security review.
+- Do not spawn subagents for trivial tasks.
+- No nested subagents.
+- Prefer one implementer and one validator.
+- Keep delegated summaries compact and avoid passing large transcripts between agents.
+- Use the validator only when tests, browser interaction, screenshots, or verification are required.
 
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
+## Validator Workflow
 
-With the following `frontend.tsx`:
-
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+1. Execute Playwright tests.
+2. Inspect failures.
+3. Inspect screenshots.
+4. Inspect traces.
+5. Determine root cause.
+6. Classify as `implementation bug`, `flaky test`, `environment issue`, or `product defect`.
+7. Provide an actionable report.
+8. Recommend a fix.
+9. Rerun validation if required.

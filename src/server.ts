@@ -1,6 +1,7 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
+  bulkUpdatePoiActiveState,
   createDatabase,
   deleteApartmentPhotoRecord,
   deleteApartmentRecord,
@@ -11,6 +12,7 @@ import {
   getWeightSettings,
   insertApartment,
   insertCustomPoi,
+  listAllPois,
   listApartments,
   listCustomPois,
   replaceApartmentCustomPoiScores,
@@ -51,8 +53,11 @@ import type {
   ApartmentScoreSnapshot,
   BootstrapPayload,
   CustomPoi,
+  MapConfig,
   CustomPoiInput,
+  ManagedPoi,
   MapPayload,
+  PoiManagementPayload,
   StandardPoiCategory,
   StandardPoiScore,
   WeightSettings,
@@ -65,6 +70,18 @@ const STANDARD_CATEGORIES: StandardPoiCategory[] = [
   "cafe",
   "park_or_river",
 ];
+
+const TILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const TILE_CACHE_MAX_ENTRIES = 512;
+
+type TileCacheEntry = {
+  body: ArrayBuffer;
+  contentType: string;
+  expiresAt: number;
+};
+
+const tileCache = new Map<string, TileCacheEntry>();
+const tileInflight = new Map<string, Promise<{ body: ArrayBuffer; contentType: string }>>();
 
 type AppState = Awaited<ReturnType<typeof initApp>>;
 
@@ -125,6 +142,100 @@ function scoreCategoryWeightKey(category: StandardPoiCategory) {
     default:
       return category;
   }
+}
+
+function categoryLabel(category: StandardPoiCategory | "custom") {
+  switch (category) {
+    case "supermarket":
+      return "Supermarket";
+    case "sport_studio":
+      return "Sport studio";
+    case "ubahn":
+      return "U-Bahn";
+    case "cafe":
+      return "Cafe";
+    case "park_or_river":
+      return "Park / river";
+    case "custom":
+      return "Custom";
+  }
+}
+
+function buildManagedPois(app: AppState): ManagedPoi[] {
+  const standardPois = listAllPois(app.database).map(
+    (poi): ManagedPoi => ({
+      id: poi.id,
+      kind: "standard",
+      category: poi.category,
+      categoryLabel: categoryLabel(poi.category),
+      name: poi.name,
+      address: poi.address,
+      isActive: poi.isActive,
+      notes: "",
+      source: poi.source,
+      tags: poi.tags,
+      latitude: poi.latitude,
+      longitude: poi.longitude,
+      createdAt: "",
+      updatedAt: null,
+    }),
+  );
+  const customPois = listCustomPois(app.database).map(
+    (poi): ManagedPoi => ({
+      id: poi.id,
+      kind: "custom",
+      category: "custom",
+      categoryLabel: categoryLabel("custom"),
+      name: poi.name,
+      address: poi.address,
+      isActive: poi.isActive,
+      notes: poi.notes,
+      source: "custom",
+      tags: [],
+      latitude: poi.latitude,
+      longitude: poi.longitude,
+      createdAt: poi.createdAt,
+      updatedAt: poi.updatedAt,
+    }),
+  );
+
+  return [...standardPois, ...customPois].sort((left, right) => {
+    if (left.isActive !== right.isActive) {
+      return Number(right.isActive) - Number(left.isActive);
+    }
+
+    if (left.kind !== right.kind) {
+      return left.kind.localeCompare(right.kind);
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function requirePoiStatusPayload(input: unknown) {
+  const payload = input as Record<string, unknown>;
+  const isActive = Boolean(payload.isActive);
+  const rawItems = Array.isArray(payload.items) ? payload.items : [];
+  const items = rawItems.flatMap((item) => {
+    const value = item as Record<string, unknown>;
+    const id = Number(value.id);
+    const kind = value.kind === "custom" ? "custom" : value.kind === "standard" ? "standard" : null;
+
+    if (!Number.isInteger(id) || id <= 0 || !kind) {
+      return [];
+    }
+
+    return [{ id, kind }] as const;
+  });
+
+  if (items.length === 0) {
+    throw new Error("At least one POI is required");
+  }
+
+  return {
+    isActive,
+    items,
+  };
 }
 
 async function buildStandardPoiScores(app: AppState, apartment: Apartment) {
@@ -292,6 +403,120 @@ async function rescoreAllApartments(app: AppState) {
   }
 }
 
+function buildMapConfig(app: AppState): MapConfig {
+  return {
+    tileUrl: "/api/map-tiles/{z}/{x}/{y}{r}.png",
+    attribution: app.config.jawgApiKey
+      ? '&copy; <a href="https://www.jawg.io" target="_blank" rel="noopener noreferrer">Jawg</a> &copy; OpenStreetMap contributors'
+      : "&copy; OpenStreetMap contributors",
+    maxZoom: app.config.jawgApiKey ? 22 : 19,
+  };
+}
+
+function tileCacheKey(z: string, x: string, y: string, retina: boolean) {
+  return `${z}/${x}/${y}${retina ? "@2x" : ""}`;
+}
+
+function buildTileUpstreamUrl(app: AppState, z: string, x: string, y: string, retina: boolean) {
+  if (app.config.jawgApiKey) {
+    return `https://tile.jawg.io/jawg-streets/${z}/${x}/${y}${
+      retina ? "@2x" : ""
+    }.png?access-token=${app.config.jawgApiKey}`;
+  }
+
+  const subdomain = ["a", "b", "c"][(Number(x) + Number(y)) % 3];
+  return `https://${subdomain}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
+}
+
+function evictOldestTileCacheEntry() {
+  const oldestKey = tileCache.keys().next().value;
+  if (oldestKey) {
+    tileCache.delete(oldestKey);
+  }
+}
+
+export async function serveMapTile(
+  app: AppState,
+  z: string,
+  x: string,
+  y: string,
+  retina: boolean,
+) {
+  const key = tileCacheKey(z, x, y, retina);
+  const now = Date.now();
+  const cached = tileCache.get(key);
+
+  if (cached && cached.expiresAt > now) {
+    return new Response(cached.body.slice(0), {
+      headers: {
+        "Content-Type": cached.contentType,
+        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+        "X-Rokum-Tile-Cache": "HIT",
+      },
+    });
+  }
+
+  let inflight = tileInflight.get(key);
+  if (!inflight) {
+    inflight = (async () => {
+      const upstreamResponse = await fetch(buildTileUpstreamUrl(app, z, x, y, retina), {
+        headers: {
+          Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        },
+      });
+
+      if (!upstreamResponse.ok) {
+        throw new Error(`Tile upstream request failed: ${upstreamResponse.status}`);
+      }
+
+      return {
+        body: await upstreamResponse.arrayBuffer(),
+        contentType: upstreamResponse.headers.get("content-type") ?? "image/png",
+      };
+    })();
+
+    tileInflight.set(key, inflight);
+  }
+
+  try {
+    const { body, contentType } = await inflight;
+
+    tileCache.delete(key);
+    tileCache.set(key, {
+      body,
+      contentType,
+      expiresAt: now + TILE_CACHE_TTL_MS,
+    });
+
+    while (tileCache.size > TILE_CACHE_MAX_ENTRIES) {
+      evictOldestTileCacheEntry();
+    }
+
+    return new Response(body.slice(0), {
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+        "X-Rokum-Tile-Cache": "MISS",
+      },
+    });
+  } catch (error) {
+    if (cached) {
+      return new Response(cached.body.slice(0), {
+        headers: {
+          "Content-Type": cached.contentType,
+          "Cache-Control": "public, max-age=300, stale-while-revalidate=604800",
+          "X-Rokum-Tile-Cache": "STALE",
+        },
+      });
+    }
+
+    console.warn("Map tile fetch failed", error);
+    return new Response("Tile unavailable", { status: 502 });
+  } finally {
+    tileInflight.delete(key);
+  }
+}
+
 export async function initApp() {
   const config = loadConfig();
   const database = createDatabase(config);
@@ -313,11 +538,18 @@ export function getBootstrapPayload(app: AppState): BootstrapPayload {
     apartments: listApartments(app.database),
     customPois: listCustomPois(app.database),
     settings: getWeightSettings(app.database),
+    mapConfig: buildMapConfig(app),
   };
 }
 
 export function getSettings(app: AppState) {
   return getWeightSettings(app.database);
+}
+
+export function getPoiManagementPayload(app: AppState): PoiManagementPayload {
+  return {
+    pois: buildManagedPois(app),
+  };
 }
 
 export async function updateSettings(app: AppState, payload: unknown) {
@@ -447,6 +679,21 @@ export async function updateCustomPoi(
 export async function deleteCustomPoi(app: AppState, customPoiId: number) {
   deleteCustomPoiRecord(app.database, customPoiId);
   await rescoreAllApartments(app);
+}
+
+export async function updatePoiStatuses(app: AppState, payload: unknown) {
+  const next = requirePoiStatusPayload(payload);
+  bulkUpdatePoiActiveState(app.database, {
+    standardPoiIds: next.items
+      .filter((item) => item.kind === "standard")
+      .map((item) => item.id),
+    customPoiIds: next.items
+      .filter((item) => item.kind === "custom")
+      .map((item) => item.id),
+    isActive: next.isActive,
+  });
+  await rescoreAllApartments(app);
+  return getPoiManagementPayload(app);
 }
 
 export async function getApartmentMapData(

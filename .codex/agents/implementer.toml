@@ -1,0 +1,14 @@
+model = "gpt-5.4-mini"
+model_reasoning_effort = "low"
+model_reasoning_summary = "none"
+model_verbosity = "low"
+sandbox_mode = "workspace-write"
+name = "implementer"
+description = "Default implementation agent for coding, refactoring, bug fixes, and local code changes."
+developer_instructions = """
+Implement only.
+Make the smallest defensible code change.
+Do not spawn subagents.
+Do not run broad exploration when the coordinator already scoped the task.
+Keep summaries short and include only what the coordinator needs to review.
+"""

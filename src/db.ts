@@ -100,6 +100,7 @@ function mapPoi(row: Record<string, unknown>): PoiRecord {
     category: String(row.category) as StandardPoiCategory,
     name: String(row.name),
     address: String(row.address),
+    isActive: Boolean(row.is_active),
     latitude: Number(row.latitude),
     longitude: Number(row.longitude),
     source: String(row.source),
@@ -145,6 +146,7 @@ export function createDatabase(config: AppConfig) {
       category TEXT NOT NULL,
       name TEXT NOT NULL,
       address TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
       latitude REAL NOT NULL,
       longitude REAL NOT NULL,
       source TEXT NOT NULL,
@@ -203,6 +205,9 @@ export function createDatabase(config: AppConfig) {
     .all() as Array<{ name: string }>;
   if (!poiColumns.some((column) => column.name === "tags_json")) {
     database.exec("ALTER TABLE pois ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';");
+  }
+  if (!poiColumns.some((column) => column.name === "is_active")) {
+    database.exec("ALTER TABLE pois ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;");
   }
 
   const existingWeights = database
@@ -548,8 +553,8 @@ export function insertOrIgnorePoi(database: SqlDatabase, poi: Omit<PoiRecord, "i
     .query(
       `
         INSERT INTO pois (
-          category, name, address, latitude, longitude, source, external_id, tags_json, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+          category, name, address, is_active, latitude, longitude, source, external_id, tags_json, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
         ON CONFLICT(category, name, latitude, longitude) DO UPDATE SET
           address = excluded.address,
           source = excluded.source,
@@ -561,6 +566,7 @@ export function insertOrIgnorePoi(database: SqlDatabase, poi: Omit<PoiRecord, "i
       poi.category,
       poi.name,
       poi.address,
+      poi.isActive ? 1 : 0,
       poi.latitude,
       poi.longitude,
       poi.source,
@@ -578,4 +584,46 @@ export function listPoisByCategory(database: SqlDatabase, category: StandardPoiC
 
 export function listAllPois(database: SqlDatabase) {
   return (database.query("SELECT * FROM pois").all() as Record<string, unknown>[]).map(mapPoi);
+}
+
+export function listActivePoisByCategory(database: SqlDatabase, category: StandardPoiCategory) {
+  return (database
+    .query("SELECT * FROM pois WHERE category = ?1 AND is_active = 1")
+    .all(category) as Record<string, unknown>[]).map(mapPoi);
+}
+
+export function listActivePois(database: SqlDatabase) {
+  return (database
+    .query("SELECT * FROM pois WHERE is_active = 1")
+    .all() as Record<string, unknown>[]).map(mapPoi);
+}
+
+export function updatePoiActiveState(
+  database: SqlDatabase,
+  poiId: number,
+  isActive: boolean,
+) {
+  database.query("UPDATE pois SET is_active = ?2 WHERE id = ?1").run(poiId, isActive ? 1 : 0);
+}
+
+export function bulkUpdatePoiActiveState(
+  database: SqlDatabase,
+  payload: {
+    standardPoiIds: number[];
+    customPoiIds: number[];
+    isActive: boolean;
+  },
+) {
+  const standardStatement = database.query("UPDATE pois SET is_active = ?2 WHERE id = ?1");
+  for (const poiId of payload.standardPoiIds) {
+    standardStatement.run(poiId, payload.isActive ? 1 : 0);
+  }
+
+  const customStatement = database.query(
+    "UPDATE custom_pois SET is_active = ?2, updated_at = ?3 WHERE id = ?1",
+  );
+  const timestamp = now();
+  for (const customPoiId of payload.customPoiIds) {
+    customStatement.run(customPoiId, payload.isActive ? 1 : 0, timestamp);
+  }
 }
