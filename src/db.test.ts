@@ -35,6 +35,7 @@ function createTestConfig(): AppConfig {
     transitBaseUrl: null,
     transitMode: "heuristic",
     jawgApiKey: null,
+    jawgStyleId: "jawg-streets",
   };
 }
 

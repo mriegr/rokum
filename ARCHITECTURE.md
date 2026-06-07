@@ -12,7 +12,7 @@ It combines:
 - Persisted scoring snapshots per apartment
 - Standard POI scoring for a fixed category set
 - User-managed custom POIs
-- A Leaflet-based map view with proxied tiles and transit overlays
+- A MapLibre-based map view with proxied Jawg vector resources and transit overlays
 - A POI management screen for enabling/disabling cached and custom POIs
 
 ## Runtime shape
@@ -21,8 +21,8 @@ The app is intentionally simple:
 
 - `index.ts`: Bun entrypoint, route registration, JSON helpers, route-to-handler wiring
 - `index.html`: single HTML shell imported directly by Bun
-- `src/frontend.ts`: client app state, rendering, event binding, Leaflet integration
-- `src/server.ts`: application orchestration, validation, rescoring, map tile proxying
+- `src/frontend.ts`: client app state, rendering, event binding, MapLibre integration
+- `src/server.ts`: application orchestration, validation, rescoring, Jawg style/resource proxying
 - `src/db.ts`: SQLite schema creation plus all persistence helpers
 - `src/services.ts`: remote integrations, caching, seeding, routing, geocoding, overlays, uploads
 - `src/scoring.ts`: pure scoring math and default weights
@@ -201,14 +201,15 @@ Important consequence: `sport_studio` is special. It is not fetched from Overpas
 
 - Provider: Overpass
 - Caches stops/routes in memory by rounded origin coordinate
+- Normalizes route colors from Overpass before sending them to the browser so MapLibre can render them reliably
 - Returns empty overlays on failure and caches that failure briefly
 
 ### Map tiles
 
-- Browser always loads tiles from `/api/map-tiles/...`
-- Server proxies either Jawg or OSM tile upstreams
-- Tile responses use in-memory cache plus stale fallback
-- Response headers expose cache behavior through `X-Rokum-Tile-Cache`
+- Browser always loads the basemap through local `/api/map/...` routes
+- Server proxies Jawg style, tile, glyph, and sprite requests
+- The proxy forwards upstream cache headers and only deduplicates simultaneous identical requests
+- Rokum does not persist Jawg resources or extend provider cache durations
 
 Important consequence: browser code must never use direct third-party tile URLs.
 
@@ -232,10 +233,11 @@ Main views:
 
 The map has special handling:
 
-- Leaflet instance should not be recreated for filter-only changes
+- MapLibre instance should not be recreated for filter-only changes
 - viewport should be preserved for display/filter toggles
 - refit should happen only when focused apartment or underlying payload changes
 - map bounds should stay within the Munich greater-area limits
+- when `JAWG_API` is missing, the map view renders a disabled state and skips map-resource requests
 
 The POI management page has its own performance-sensitive path:
 
@@ -314,6 +316,12 @@ Current automated coverage is strongest for pure logic and DB behavior:
 - `scoring.test.ts`
 - `db.test.ts`
 - `poiFilters.test.ts`
+- `server.test.ts`
+
+There is also dedicated browser coverage for the map view:
+
+- `mapView.browser.test.ts`
+- run it explicitly with `bun run test:browser`
 
 When extending the app, prefer tests around:
 
@@ -328,7 +336,7 @@ For frontend map and POI work, browser verification matters because several key 
 - no unnecessary `/api/apartments/:id/map` reloads
 - no unnecessary tile bursts
 - no API traffic while typing into POI search
-- tile requests must stay on the local proxy route
+- basemap requests must stay on the local proxy routes
 
 ## Documentation upkeep
 

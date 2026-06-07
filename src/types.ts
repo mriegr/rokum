@@ -182,11 +182,21 @@ export type AppConfig = {
   transitBaseUrl: string | null;
   transitMode: "heuristic" | "otp1";
   jawgApiKey: string | null;
+  jawgStyleId: string;
 };
 
-export type MapConfig = {
-  tileUrl: string;
-  attribution: string;
-  subdomains?: string[];
-  maxZoom: number;
-};
+export type MapConfig =
+  | {
+      available: true;
+      styleUrl: string;
+      attribution: string;
+      center: [number, number];
+      bounds: [[number, number], [number, number]];
+      minZoom: number;
+      maxZoom: number;
+    }
+  | {
+      available: false;
+      unavailableReason: string;
+      styleUrl: null;
+    };

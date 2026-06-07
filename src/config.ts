@@ -27,5 +27,6 @@ export function loadConfig(): AppConfig {
     transitBaseUrl: process.env.TRANSIT_BASE_URL ?? null,
     transitMode: process.env.TRANSIT_MODE === "otp1" ? "otp1" : "heuristic",
     jawgApiKey: process.env.JAWG_API?.trim() || null,
+    jawgStyleId: process.env.JAWG_STYLE_ID?.trim() || "jawg-streets",
   };
 }

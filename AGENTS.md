@@ -22,8 +22,8 @@ Use Bun by default.
 ## Frontend And Map
 
 - For frontend entrypoints, prefer Bun HTML imports and `Bun.serve`; do not introduce Vite.
-- Do not recreate the Leaflet map instance for filter-only UI changes. Update layers and sidebar state in place.
-- Keep map tiles behind `/api/map-tiles/...`; do not expose provider URLs or API keys in the browser.
+- Do not recreate the MapLibre map instance for filter-only UI changes. Update sources, layers, and sidebar state in place.
+- Keep map resources behind `/api/map/...`; do not expose provider URLs or API keys in the browser.
 - Preserve the current viewport for display toggles and filter changes. Refit only when apartment focus or the underlying map payload changes.
 - Keep the map constrained to the Munich greater-area bounds unless requirements change.
 
@@ -39,7 +39,7 @@ Use Bun by default.
 - Favor regression coverage for map state, caching behavior, and API-failure fallbacks.
 - For map changes, verify both browser behavior and network behavior.
 - Confirm filter toggles do not trigger unnecessary `/api/apartments/:id/map` reloads or fresh tile bursts.
-- If tiles are involved, verify responses come from the local proxy and include cache headers.
+- If basemap resources are involved, verify responses come from the local proxy and preserve provider cache headers.
 
 ## Multi-Agent
 

@@ -1,9 +1,12 @@
 import "./styles.css";
+import "maplibre-gl/dist/maplibre-gl.css";
+import maplibregl, { type GeoJSONSource, type MapGeoJSONFeature, type Popup } from "maplibre-gl";
 import type {
   Apartment,
   BootstrapPayload,
   CustomPoi,
   ManagedPoi,
+  MapConfig,
   PoiRecord,
   MapPayload,
   PoiManagementPayload,
@@ -20,12 +23,6 @@ import {
   type IndexedManagedPoi,
   type PoiStatusFilter,
 } from "./poiFilters";
-
-declare global {
-  interface Window {
-    L?: any;
-  }
-}
 
 type EditorMode = "create" | "edit";
 type PanelView = "apartment" | "custom-poi" | "settings";
@@ -83,9 +80,9 @@ const state: AppState = {
     customPoi: 1.1,
   },
   mapConfig: {
-    tileUrl: "/api/map-tiles/{z}/{x}/{y}{r}.png",
-    attribution: "&copy; OpenStreetMap contributors",
-    maxZoom: 19,
+    available: false,
+    unavailableReason: "Map API configuration is missing.",
+    styleUrl: null,
   },
   activeView: initialView,
   selectedApartmentId: null,
@@ -123,16 +120,40 @@ const state: AppState = {
   selectedManagedPoiKeys: [],
 };
 
-let map: any = null;
-let markers: any[] = [];
-let mapTileLayer: any = null;
-let routeLayers: any[] = [];
+type LngLatTuple = [number, number];
+type MapFeatureProperties = Record<string, string | number | boolean | null>;
+type FeatureCollection = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    id?: string;
+    geometry:
+      | { type: "Point"; coordinates: LngLatTuple }
+      | { type: "LineString"; coordinates: LngLatTuple[] };
+    properties: MapFeatureProperties;
+  }>;
+};
 
-const MUNICH_GREATER_AREA_BOUNDS: [[number, number], [number, number]] = [
-  [47.95, 11.05],
-  [48.42, 12.05],
-];
-const MUNICH_CITY_CENTER: [number, number] = [48.137154, 11.576124];
+let map: maplibregl.Map | null = null;
+let popup: Popup | null = null;
+let mapReady = false;
+
+const EMPTY_FEATURE_COLLECTION: FeatureCollection = {
+  type: "FeatureCollection",
+  features: [],
+};
+
+const APARTMENT_SOURCE_ID = "apartment";
+const POI_SOURCE_ID = "nearby-pois";
+const CUSTOM_POI_SOURCE_ID = "custom-pois";
+const TRANSIT_SOURCE_ID = "transit-stops";
+const UBAHN_SOURCE_ID = "ubahn-routes";
+
+const APARTMENT_LAYER_ID = "apartment-layer";
+const POI_LAYER_ID = "poi-layer";
+const CUSTOM_POI_LAYER_ID = "custom-poi-layer";
+const TRANSIT_LAYER_ID = "transit-layer";
+const UBAHN_LAYER_ID = "ubahn-layer";
 
 const POI_LABELS: Record<StandardPoiCategory, string> = {
   supermarket: "Supermarkets",
@@ -259,32 +280,412 @@ function groupedVisiblePois() {
 
 function destroyMap() {
   if (map) {
+    popup?.remove();
+    popup = null;
     map.remove();
     map = null;
-    mapTileLayer = null;
-    markers = [];
-    routeLayers = [];
+    mapReady = false;
   }
 }
 
-function munichGreaterAreaBounds() {
-  return window.L.latLngBounds(MUNICH_GREATER_AREA_BOUNDS);
+function mapIsAvailable(config: MapConfig): config is Extract<MapConfig, { available: true }> {
+  return config.available;
 }
 
-function constrainBoundsToMunichArea(bounds: any) {
-  const munichBounds = munichGreaterAreaBounds();
-  const padded = bounds.pad(0.12);
-  const south = Math.max(padded.getSouth(), munichBounds.getSouth());
-  const west = Math.max(padded.getWest(), munichBounds.getWest());
-  const north = Math.min(padded.getNorth(), munichBounds.getNorth());
-  const east = Math.min(padded.getEast(), munichBounds.getEast());
-  const constrained = window.L.latLngBounds([south, west], [north, east]);
+function emptyFeatureCollection(): FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: [],
+  };
+}
 
-  if (!constrained.isValid()) {
-    return munichBounds;
+function popupHtml(title: string, lines: string[]) {
+  return [`<strong>${escapeHtml(title)}</strong>`, ...lines.map((line) => escapeHtml(line))]
+    .join("<br />");
+}
+
+function normalizeMapColor(value: string | null | undefined) {
+  if (!value) {
+    return null;
   }
 
-  return constrained;
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/i.test(trimmed)) {
+    return `#${trimmed}`;
+  }
+
+  if (/^[a-z]+$/i.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+
+  return null;
+}
+
+function apartmentFeatureCollection() {
+  const apartment = state.mapPayload?.apartment;
+  if (!apartment || apartment.latitude === null || apartment.longitude === null) {
+    return emptyFeatureCollection();
+  }
+
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        id: `apartment:${apartment.id}`,
+        geometry: {
+          type: "Point",
+          coordinates: [apartment.longitude, apartment.latitude],
+        },
+        properties: {
+          popupHtml: popupHtml(apartment.address, []),
+        },
+      },
+    ],
+  } satisfies FeatureCollection;
+}
+
+function nearbyPoiFeatureCollection() {
+  return {
+    type: "FeatureCollection",
+    features: visibleNearbyPois().map((poi) => ({
+      type: "Feature" as const,
+      id: `poi:${poi.id}`,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [poi.longitude, poi.latitude] as LngLatTuple,
+      },
+      properties: {
+        category: poi.category,
+        popupHtml: popupHtml(poi.name, [
+          POI_LABELS[poi.category],
+          poi.address || "Address unavailable",
+          poi.tags.length ? poi.tags.join(", ") : "",
+        ].filter(Boolean)),
+      },
+    })),
+  } satisfies FeatureCollection;
+}
+
+function transitStopFeatureCollection() {
+  if (!state.showTransitStops || !state.mapPayload) {
+    return emptyFeatureCollection();
+  }
+
+  return {
+    type: "FeatureCollection",
+    features: state.mapPayload.transitStops.map((stop) => ({
+      type: "Feature" as const,
+      id: `stop:${stop.id}`,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [stop.longitude, stop.latitude] as LngLatTuple,
+      },
+      properties: {
+        popupHtml: popupHtml(stop.name, [stop.modes.join(", ")]),
+      },
+    })),
+  } satisfies FeatureCollection;
+}
+
+function customPoiFeatureCollection() {
+  if (!state.mapPayload) {
+    return emptyFeatureCollection();
+  }
+
+  return {
+    type: "FeatureCollection",
+    features: state.mapPayload.customPoiScores.map((score) => ({
+      type: "Feature" as const,
+      id: `custom:${score.customPoiId}`,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [score.longitude, score.latitude] as LngLatTuple,
+      },
+      properties: {
+        popupHtml: popupHtml(score.name, [
+          `Walk ${score.walking.durationMinutes ?? "n/a"} min`,
+          `Transit ${score.transit.durationMinutes ?? "n/a"} min`,
+        ]),
+      },
+    })),
+  } satisfies FeatureCollection;
+}
+
+function ubahnRouteFeatureCollection() {
+  if (!state.showUbahnRoutes || !state.mapPayload) {
+    return emptyFeatureCollection();
+  }
+
+  return {
+    type: "FeatureCollection",
+    features: state.mapPayload.ubahnRoutes.flatMap((route) =>
+      route.paths
+        .filter((path) => path.length >= 2)
+        .map((path, index) => ({
+          type: "Feature" as const,
+          id: `ubahn:${route.id}:${index}`,
+          geometry: {
+            type: "LineString" as const,
+            coordinates: path.map((point) => [point.longitude, point.latitude] as LngLatTuple),
+          },
+          properties: {
+            color: normalizeMapColor(route.color) || "#0056b8",
+            popupHtml: popupHtml(route.ref || route.name, [route.name]),
+          },
+        })),
+    ),
+  } satisfies FeatureCollection;
+}
+
+function setSourceData(sourceId: string, data: FeatureCollection) {
+  const source = map?.getSource(sourceId) as GeoJSONSource | undefined;
+  source?.setData(data);
+}
+
+function applyLayerVisibility(layerId: string, visible: boolean) {
+  if (!map?.getLayer(layerId)) {
+    return;
+  }
+
+  map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
+}
+
+function resizeMapSoon() {
+  window.setTimeout(() => map?.resize(), 0);
+}
+
+function fitMapToPayload() {
+  const coordinates: LngLatTuple[] = [];
+  const apartment = state.mapPayload?.apartment;
+  if (
+    apartment &&
+    apartment.latitude !== null &&
+    apartment.longitude !== null
+  ) {
+    coordinates.push([apartment.longitude, apartment.latitude]);
+  }
+
+  for (const poi of visibleNearbyPois()) {
+    coordinates.push([poi.longitude, poi.latitude]);
+  }
+
+  if (state.showTransitStops) {
+    for (const stop of state.mapPayload?.transitStops ?? []) {
+      coordinates.push([stop.longitude, stop.latitude]);
+    }
+  }
+
+  for (const score of state.mapPayload?.customPoiScores ?? []) {
+    coordinates.push([score.longitude, score.latitude]);
+  }
+
+  if (state.showUbahnRoutes) {
+    for (const route of state.mapPayload?.ubahnRoutes ?? []) {
+      for (const path of route.paths) {
+        for (const point of path) {
+          coordinates.push([point.longitude, point.latitude]);
+        }
+      }
+    }
+  }
+
+  if (coordinates.length === 0) {
+    if (mapIsAvailable(state.mapConfig)) {
+      map?.jumpTo({
+        center: state.mapConfig.center,
+        zoom: 11,
+      });
+    }
+    return;
+  }
+
+  const bounds = coordinates.reduce(
+    (current, coordinate) => current.extend(coordinate),
+    new maplibregl.LngLatBounds(coordinates[0], coordinates[0]),
+  );
+  map?.fitBounds(bounds, {
+    padding: 56,
+    maxZoom: 15,
+    duration: 0,
+  });
+}
+
+function syncMapSources(options?: { preserveViewport?: boolean }) {
+  if (!mapReady) {
+    return;
+  }
+
+  setSourceData(APARTMENT_SOURCE_ID, apartmentFeatureCollection());
+  setSourceData(POI_SOURCE_ID, nearbyPoiFeatureCollection());
+  setSourceData(CUSTOM_POI_SOURCE_ID, customPoiFeatureCollection());
+  setSourceData(TRANSIT_SOURCE_ID, transitStopFeatureCollection());
+  setSourceData(UBAHN_SOURCE_ID, ubahnRouteFeatureCollection());
+
+  applyLayerVisibility(TRANSIT_LAYER_ID, state.showTransitStops);
+  applyLayerVisibility(UBAHN_LAYER_ID, state.showUbahnRoutes);
+
+  if (!options?.preserveViewport) {
+    fitMapToPayload();
+  }
+
+  resizeMapSoon();
+}
+
+function showMapPopup(feature: MapGeoJSONFeature) {
+  const coordinates = feature.geometry.type === "Point"
+    ? [...feature.geometry.coordinates]
+    : feature.geometry.coordinates[0]
+      ? [...feature.geometry.coordinates[0]]
+      : null;
+
+  if (!coordinates) {
+    return;
+  }
+
+  popup?.remove();
+  popup = new maplibregl.Popup({ closeButton: false, offset: 12 })
+    .setLngLat(coordinates as [number, number])
+    .setHTML(String(feature.properties?.popupHtml ?? ""))
+    .addTo(map!);
+}
+
+function bindMapInteractions() {
+  if (!map) {
+    return;
+  }
+
+  for (const layerId of [
+    APARTMENT_LAYER_ID,
+    POI_LAYER_ID,
+    CUSTOM_POI_LAYER_ID,
+    TRANSIT_LAYER_ID,
+    UBAHN_LAYER_ID,
+  ]) {
+    map.on("click", layerId, (event) => {
+      const feature = event.features?.[0];
+      if (feature) {
+        showMapPopup(feature);
+      }
+    });
+    map.on("mouseenter", layerId, () => {
+      map?.getCanvas().style.setProperty("cursor", "pointer");
+    });
+    map.on("mouseleave", layerId, () => {
+      map?.getCanvas().style.removeProperty("cursor");
+    });
+  }
+}
+
+function addMapSourcesAndLayers() {
+  if (!map || mapReady) {
+    return;
+  }
+
+  map.addSource(APARTMENT_SOURCE_ID, {
+    type: "geojson",
+    data: EMPTY_FEATURE_COLLECTION,
+  });
+  map.addSource(POI_SOURCE_ID, {
+    type: "geojson",
+    data: EMPTY_FEATURE_COLLECTION,
+  });
+  map.addSource(CUSTOM_POI_SOURCE_ID, {
+    type: "geojson",
+    data: EMPTY_FEATURE_COLLECTION,
+  });
+  map.addSource(TRANSIT_SOURCE_ID, {
+    type: "geojson",
+    data: EMPTY_FEATURE_COLLECTION,
+  });
+  map.addSource(UBAHN_SOURCE_ID, {
+    type: "geojson",
+    data: EMPTY_FEATURE_COLLECTION,
+  });
+
+  map.addLayer({
+    id: UBAHN_LAYER_ID,
+    type: "line",
+    source: UBAHN_SOURCE_ID,
+    paint: {
+      "line-color": ["coalesce", ["get", "color"], "#0056b8"],
+      "line-width": 4,
+      "line-opacity": 0.65,
+    },
+  });
+  map.addLayer({
+    id: POI_LAYER_ID,
+    type: "circle",
+    source: POI_SOURCE_ID,
+    paint: {
+      "circle-radius": [
+        "case",
+        ["==", ["get", "category"], "sport_studio"],
+        7,
+        6,
+      ],
+      "circle-color": [
+        "case",
+        ["==", ["get", "category"], "sport_studio"],
+        "#7ad3b0",
+        "#b7d5ea",
+      ],
+      "circle-stroke-color": [
+        "case",
+        ["==", ["get", "category"], "sport_studio"],
+        "#0f6b57",
+        "#275d8a",
+      ],
+      "circle-stroke-width": 2,
+      "circle-opacity": 0.92,
+    },
+  });
+  map.addLayer({
+    id: TRANSIT_LAYER_ID,
+    type: "circle",
+    source: TRANSIT_SOURCE_ID,
+    paint: {
+      "circle-radius": 5,
+      "circle-color": "#ffe55c",
+      "circle-stroke-color": "#101820",
+      "circle-stroke-width": 2,
+      "circle-opacity": 0.95,
+    },
+  });
+  map.addLayer({
+    id: CUSTOM_POI_LAYER_ID,
+    type: "circle",
+    source: CUSTOM_POI_SOURCE_ID,
+    paint: {
+      "circle-radius": 8,
+      "circle-color": "#7dc4de",
+      "circle-stroke-color": "#25556e",
+      "circle-stroke-width": 2,
+      "circle-opacity": 0.9,
+    },
+  });
+  map.addLayer({
+    id: APARTMENT_LAYER_ID,
+    type: "circle",
+    source: APARTMENT_SOURCE_ID,
+    paint: {
+      "circle-radius": 9,
+      "circle-color": "#f06b4f",
+      "circle-stroke-color": "#18201f",
+      "circle-stroke-width": 3,
+    },
+  });
+
+  bindMapInteractions();
+  mapReady = true;
 }
 
 function sortedApartments() {
@@ -335,7 +736,7 @@ async function loadBootstrap() {
   state.mapConfig = payload.mapConfig;
   state.selectedApartmentId = payload.apartments[0]?.id ?? null;
   render();
-  if (state.activeView === "map" && state.selectedApartmentId) {
+  if (state.activeView === "map" && state.selectedApartmentId && mapIsAvailable(state.mapConfig)) {
     await loadMapPayload(state.selectedApartmentId);
   }
 }
@@ -370,6 +771,11 @@ async function refreshAppData(options?: { refreshMap?: boolean; refreshPois?: bo
   }
 
   if (options?.refreshMap && state.activeView === "map" && state.selectedApartmentId) {
+    if (!mapIsAvailable(state.mapConfig)) {
+      state.mapPayload = null;
+      render();
+      return;
+    }
     await loadMapPayload(state.selectedApartmentId);
     return;
   }
@@ -378,6 +784,13 @@ async function refreshAppData(options?: { refreshMap?: boolean; refreshPois?: bo
 }
 
 async function loadMapPayload(apartmentId: number) {
+  if (!mapIsAvailable(state.mapConfig)) {
+    state.mapPayload = null;
+    state.selectedApartmentId = apartmentId;
+    render();
+    return;
+  }
+
   state.mapPayload = await requestJson<MapPayload>(`/api/apartments/${apartmentId}/map`);
   state.selectedApartmentId = apartmentId;
   if (state.activeView === "map" && document.querySelector(".map-sidebar")) {
@@ -1236,9 +1649,15 @@ function renderMapLegend() {
 }
 
 function renderMapView() {
+  const disabledState =
+    !mapIsAvailable(state.mapConfig)
+      ? `<div class="map-fallback"><div class="panel-block"><strong>Map disabled</strong><p>${escapeHtml(
+          state.mapConfig.unavailableReason,
+        )}</p></div></div>`
+      : "";
   return `
     <section class="map-layout">
-      <div id="map-canvas" class="map-canvas"></div>
+      <div id="map-canvas" class="map-canvas">${disabledState}</div>
       <aside class="map-sidebar"></aside>
     </section>
   `;
@@ -1246,8 +1665,6 @@ function renderMapView() {
 
 function render() {
   if (state.activeView !== "map" && map) {
-    destroyMap();
-  } else if (state.activeView === "map" || map) {
     destroyMap();
   }
 
@@ -1268,7 +1685,7 @@ function render() {
 
   if (state.activeView === "map") {
     updateMapSidebar();
-    queueMicrotask(renderMap);
+    queueMicrotask(() => renderMap());
   }
 }
 
@@ -1798,10 +2215,12 @@ function renderMap(options?: { preserveViewport?: boolean }) {
   }
 
   const mapElement = document.querySelector<HTMLElement>("#map-canvas");
-  if (!mapElement || !window.L) {
-    if (mapElement) {
-      mapElement.innerHTML = `<div class="map-fallback">Map library did not load.</div>`;
-    }
+  if (!mapElement) {
+    return;
+  }
+
+  if (!mapIsAvailable(state.mapConfig)) {
+    destroyMap();
     return;
   }
 
@@ -1810,131 +2229,37 @@ function renderMap(options?: { preserveViewport?: boolean }) {
   }
 
   if (!map) {
-    const tileLayerOptions: Record<string, unknown> = {
+    map = new maplibregl.Map({
+      container: mapElement,
+      style: state.mapConfig.styleUrl,
+      center: state.mapConfig.center,
+      zoom: 11,
+      minZoom: state.mapConfig.minZoom,
       maxZoom: state.mapConfig.maxZoom,
-      attribution: state.mapConfig.attribution,
-    };
-    if (state.mapConfig.subdomains?.length) {
-      tileLayerOptions.subdomains = state.mapConfig.subdomains;
-    }
-
-    map = window.L.map("map-canvas", {
-      zoomControl: true,
-      scrollWheelZoom: true,
-      zoomAnimation: false,
-      fadeAnimation: false,
-      markerZoomAnimation: false,
-      maxBounds: munichGreaterAreaBounds(),
-      maxBoundsViscosity: 1,
+      maxBounds: state.mapConfig.bounds,
+      renderWorldCopies: false,
+      attributionControl: false,
     });
-    mapTileLayer = window.L.tileLayer(state.mapConfig.tileUrl, tileLayerOptions);
-    mapTileLayer.addTo(map);
-  }
-
-  setTimeout(() => map?.invalidateSize(), 0);
-
-  markers.forEach((marker) => marker.remove());
-  markers = [];
-  routeLayers.forEach((layer) => layer.remove());
-  routeLayers = [];
-
-  const payload = state.mapPayload;
-  if (!payload || payload.apartment.latitude === null || payload.apartment.longitude === null) {
-    if (options?.preserveViewport) {
-      setTimeout(() => map?.invalidateSize(), 80);
-      return;
-    }
-    map.setView(MUNICH_CITY_CENTER, 11);
+    map.addControl(new maplibregl.NavigationControl(), "top-right");
+    map.addControl(
+      new maplibregl.AttributionControl({
+        compact: true,
+        customAttribution: state.mapConfig.attribution,
+      }),
+      "bottom-right",
+    );
+    map.on("load", () => {
+      addMapSourcesAndLayers();
+      syncMapSources(options);
+    });
+    map.on("error", (event) => {
+      console.error("MapLibre error", event.error ?? event);
+    });
+    resizeMapSoon();
     return;
   }
 
-  const apartmentLatLng = [payload.apartment.latitude, payload.apartment.longitude];
-  const apartmentMarker = window.L.marker(apartmentLatLng).addTo(map);
-  apartmentMarker.bindPopup(`<strong>${escapeHtml(payload.apartment.address)}</strong>`);
-  markers.push(apartmentMarker);
-
-  if (state.showUbahnRoutes) {
-    for (const route of payload.ubahnRoutes) {
-      for (const path of route.paths) {
-        const polyline = window.L.polyline(
-          path.map((point) => [point.latitude, point.longitude]),
-          {
-            color: route.color || "#0056b8",
-            weight: 4,
-            opacity: 0.65,
-          },
-        ).addTo(map);
-        polyline.bindPopup(
-          `<strong>${escapeHtml(route.ref || route.name)}</strong><br />${escapeHtml(
-            route.name,
-          )}`,
-        );
-        routeLayers.push(polyline);
-      }
-    }
-  }
-
-  for (const poi of visibleNearbyPois()) {
-    const isSportStudio = poi.category === "sport_studio";
-    const marker = window.L.circleMarker([poi.latitude, poi.longitude], {
-      radius: isSportStudio ? 7 : 6,
-      color: isSportStudio ? "#0f6b57" : "#275d8a",
-      fillColor: isSportStudio ? "#7ad3b0" : "#b7d5ea",
-      fillOpacity: 0.92,
-      weight: 2,
-    }).addTo(map);
-    marker.bindPopup(
-      `<strong>${escapeHtml(poi.name)}</strong><br />${escapeHtml(
-        POI_LABELS[poi.category],
-      )}<br />${escapeHtml(poi.address || "Address unavailable")}${
-        poi.tags.length ? `<br />${escapeHtml(poi.tags.join(", "))}` : ""
-      }`,
-    );
-    markers.push(marker);
-  }
-
-  if (state.showTransitStops) {
-    for (const stop of payload.transitStops) {
-      const marker = window.L.circleMarker([stop.latitude, stop.longitude], {
-        radius: 5,
-        color: "#101820",
-        fillColor: "#ffe55c",
-        fillOpacity: 0.95,
-        weight: 2,
-      }).addTo(map);
-      marker.bindPopup(
-        `<strong>${escapeHtml(stop.name)}</strong><br />${escapeHtml(
-          stop.modes.join(", "),
-        )}`,
-      );
-      markers.push(marker);
-    }
-  }
-
-  for (const score of payload.customPoiScores) {
-    const marker = window.L.circleMarker([score.latitude, score.longitude], {
-      radius: 8,
-      color: "#25556e",
-      fillColor: "#7dc4de",
-      fillOpacity: 0.9,
-      weight: 2,
-    }).addTo(map);
-    marker.bindPopup(
-      `<strong>${escapeHtml(score.name)}</strong><br />Walk ${
-        score.walking.durationMinutes ?? "n/a"
-      } min · Transit ${score.transit.durationMinutes ?? "n/a"} min`,
-    );
-    markers.push(marker);
-  }
-
-  if (options?.preserveViewport) {
-    setTimeout(() => map?.invalidateSize(), 80);
-    return;
-  }
-
-  const bounds = window.L.latLngBounds(markers.map((marker) => marker.getLatLng()));
-  map.fitBounds(constrainBoundsToMunichArea(bounds));
-  setTimeout(() => map?.invalidateSize(), 80);
+  syncMapSources(options);
 }
 
 async function boot() {

@@ -490,6 +490,31 @@ function transitModeTags(tags: Record<string, string>) {
   return Array.from(modes);
 }
 
+function normalizeMapColor(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/i.test(trimmed)) {
+    return `#${trimmed}`;
+  }
+
+  if (/^[a-z]+$/i.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+
+  return null;
+}
+
 export async function fetchTransitMapOverlay(
   config: AppConfig,
   origin: Coordinates,
@@ -633,7 +658,7 @@ out skel qt;
         id: `${element.id}`,
         name: element.tags.name || element.tags.ref || "U-Bahn route",
         ref: element.tags.ref || "",
-        color: element.tags.colour || element.tags.color || null,
+        color: normalizeMapColor(element.tags.colour || element.tags.color || null),
         paths,
       });
     }

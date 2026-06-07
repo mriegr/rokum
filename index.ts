@@ -11,6 +11,10 @@ import {
   getSettings,
   initApp,
   refreshApartmentScores,
+  serveMapGlyph,
+  serveMapSource,
+  serveMapSprite,
+  serveMapStyle,
   serveMapTile,
   updateApartment,
   updateCustomPoi,
@@ -63,16 +67,39 @@ Bun.serve({
     }
 
     try {
-      const mapTileMatch = pathname.match(/^\/api\/map-tiles\/(\d+)\/(\d+)\/(\d+)(@2x)?\.png$/);
+      if (pathname === "/api/map/style.json" && method === "GET") {
+        return await serveMapStyle(app, request.url);
+      }
+
+      const mapTileMatch = pathname.match(/^\/api\/map\/tiles\/([a-f0-9]+)\/(\d+)\/(\d+)\/(\d+)\.pbf$/);
       if (mapTileMatch && method === "GET") {
-        const [, z, x, y, retina] = mapTileMatch;
-        return await serveMapTile(
+        const [, assetId, z, x, y] = mapTileMatch;
+        return await serveMapTile(app, assetId!, z!, x!, y!);
+      }
+
+      const mapGlyphMatch = pathname.match(
+        /^\/api\/map\/glyphs\/([a-f0-9]+)\/([^/]+)\/(\d+-\d+)\.pbf$/,
+      );
+      if (mapGlyphMatch && method === "GET") {
+        const [, assetId, fontstack, range] = mapGlyphMatch;
+        return await serveMapGlyph(app, assetId!, decodeURIComponent(fontstack!), range!);
+      }
+
+      const mapSpriteMatch = pathname.match(
+        /^\/api\/map\/sprites\/([a-f0-9]+)(\.json|\.png|@2x\.json|@2x\.png)$/,
+      );
+      if (mapSpriteMatch && method === "GET") {
+        const [, assetId, suffix] = mapSpriteMatch;
+        return await serveMapSprite(
           app,
-          z!,
-          x!,
-          y!,
-          Boolean(retina),
+          assetId!,
+          suffix as ".json" | ".png" | "@2x.json" | "@2x.png",
         );
+      }
+
+      const mapSourceMatch = pathname.match(/^\/api\/map\/sources\/([a-f0-9]+)\.json$/);
+      if (mapSourceMatch && method === "GET") {
+        return await serveMapSource(app, mapSourceMatch[1]!);
       }
 
       if (pathname === "/api/bootstrap" && method === "GET") {

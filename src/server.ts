@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -71,17 +72,27 @@ const STANDARD_CATEGORIES: StandardPoiCategory[] = [
   "park_or_river",
 ];
 
-const TILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const TILE_CACHE_MAX_ENTRIES = 512;
+const MUNICH_GREATER_AREA_BOUNDS: [[number, number], [number, number]] = [
+  [11.05, 47.95],
+  [12.05, 48.42],
+];
+const MUNICH_CITY_CENTER: [number, number] = [11.576124, 48.137154];
+const JAWG_ALLOWED_HOSTS = new Set(["api.jawg.io", "tile.jawg.io"]);
 
-type TileCacheEntry = {
-  body: ArrayBuffer;
-  contentType: string;
-  expiresAt: number;
+type MapAssetKind = "tile" | "glyph" | "sprite" | "source";
+type MapAssetManifestEntry = {
+  kind: MapAssetKind;
+  url: string;
 };
 
-const tileCache = new Map<string, TileCacheEntry>();
-const tileInflight = new Map<string, Promise<{ body: ArrayBuffer; contentType: string }>>();
+type MapProxyResponse = {
+  body: ArrayBuffer;
+  headers: HeadersInit;
+  status: number;
+};
+
+const mapAssetManifest = new Map<string, MapAssetManifestEntry>();
+const mapResourceInflight = new Map<string, Promise<MapProxyResponse>>();
 
 type AppState = Awaited<ReturnType<typeof initApp>>;
 
@@ -404,117 +415,303 @@ async function rescoreAllApartments(app: AppState) {
 }
 
 function buildMapConfig(app: AppState): MapConfig {
+  if (!app.config.jawgApiKey) {
+    return {
+      available: false,
+      unavailableReason: "Map API configuration is missing.",
+      styleUrl: null,
+    };
+  }
+
   return {
-    tileUrl: "/api/map-tiles/{z}/{x}/{y}{r}.png",
-    attribution: app.config.jawgApiKey
-      ? '&copy; <a href="https://www.jawg.io" target="_blank" rel="noopener noreferrer">Jawg</a> &copy; OpenStreetMap contributors'
-      : "&copy; OpenStreetMap contributors",
-    maxZoom: app.config.jawgApiKey ? 22 : 19,
+    available: true,
+    styleUrl: `/api/map/style.json?style=${encodeURIComponent(app.config.jawgStyleId)}`,
+    attribution:
+      '&copy; <a href="https://www.jawg.io" target="_blank" rel="noopener noreferrer">Jawg</a> &copy; OpenStreetMap contributors',
+    center: MUNICH_CITY_CENTER,
+    bounds: MUNICH_GREATER_AREA_BOUNDS,
+    minZoom: 8,
+    maxZoom: 22,
   };
 }
 
-function tileCacheKey(z: string, x: string, y: string, retina: boolean) {
-  return `${z}/${x}/${y}${retina ? "@2x" : ""}`;
-}
-
-function buildTileUpstreamUrl(app: AppState, z: string, x: string, y: string, retina: boolean) {
-  if (app.config.jawgApiKey) {
-    return `https://tile.jawg.io/jawg-streets/${z}/${x}/${y}${
-      retina ? "@2x" : ""
-    }.png?access-token=${app.config.jawgApiKey}`;
+function requireJawgApiKey(app: AppState) {
+  if (!app.config.jawgApiKey) {
+    throw new Error("Map API configuration is missing.");
   }
 
-  const subdomain = ["a", "b", "c"][(Number(x) + Number(y)) % 3];
-  return `https://${subdomain}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
+  return app.config.jawgApiKey;
 }
 
-function evictOldestTileCacheEntry() {
-  const oldestKey = tileCache.keys().next().value;
-  if (oldestKey) {
-    tileCache.delete(oldestKey);
+function isAllowedJawgUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && JAWG_ALLOWED_HOSTS.has(url.hostname);
+  } catch {
+    return false;
   }
+}
+
+function sanitizeJawgUrl(value: string) {
+  const url = new URL(value);
+  url.searchParams.delete("access-token");
+  return url
+    .toString()
+    .replaceAll("%7B", "{")
+    .replaceAll("%7D", "}");
+}
+
+function registerMapAsset(kind: MapAssetKind, url: string) {
+  const sanitizedUrl = sanitizeJawgUrl(url);
+  const assetId = createHash("sha1").update(`${kind}:${sanitizedUrl}`).digest("hex");
+  mapAssetManifest.set(assetId, {
+    kind,
+    url: sanitizedUrl,
+  });
+  return assetId;
+}
+
+function withJawgToken(urlString: string, apiKey: string) {
+  const url = new URL(urlString);
+  url.searchParams.set("access-token", apiKey);
+  return url.toString();
+}
+
+function forwardMapHeaders(upstreamHeaders: Headers) {
+  const headers = new Headers();
+  for (const key of ["content-type", "cache-control", "etag", "last-modified"]) {
+    const value = upstreamHeaders.get(key);
+    if (value) {
+      headers.set(key, value);
+    }
+  }
+  return headers;
+}
+
+function forwardJsonHeaders(upstreamHeaders: Headers) {
+  const headers = new Headers();
+  for (const key of ["cache-control", "etag", "last-modified"]) {
+    const value = upstreamHeaders.get(key);
+    if (value) {
+      headers.set(key, value);
+    }
+  }
+  return headers;
+}
+
+async function fetchMapBinary(app: AppState, url: string, inflightKey: string) {
+  let inflight = mapResourceInflight.get(inflightKey);
+  if (!inflight) {
+    inflight = (async (): Promise<MapProxyResponse> => {
+      const upstreamUrl = withJawgToken(url, requireJawgApiKey(app));
+      const upstream = await fetch(upstreamUrl);
+      if (!upstream.ok) {
+        const status = upstream.status === 404 ? 404 : 502;
+        return {
+          body: new TextEncoder().encode("Map resource unavailable").buffer,
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+          },
+          status,
+        };
+      }
+
+      return {
+        body: await upstream.arrayBuffer(),
+        headers: forwardMapHeaders(upstream.headers),
+        status: upstream.status,
+      };
+    })();
+    mapResourceInflight.set(inflightKey, inflight);
+  }
+
+  try {
+    const payload = await inflight;
+    return new Response(payload.body.slice(0), {
+      status: payload.status,
+      headers: payload.headers,
+    });
+  } finally {
+    mapResourceInflight.delete(inflightKey);
+  }
+}
+
+function rewriteTileTemplate(template: string, origin: string) {
+  const assetId = registerMapAsset("tile", template);
+  return `${origin}/api/map/tiles/${assetId}/{z}/{x}/{y}.pbf`;
+}
+
+function rewriteSourceUrl(url: string, origin: string) {
+  const assetId = registerMapAsset("source", url);
+  return `${origin}/api/map/sources/${assetId}.json`;
+}
+
+function rewriteGlyphTemplate(template: string, origin: string) {
+  const assetId = registerMapAsset("glyph", template);
+  return `${origin}/api/map/glyphs/${assetId}/{fontstack}/{range}.pbf`;
+}
+
+function rewriteSpriteBase(url: string, origin: string) {
+  const assetId = registerMapAsset("sprite", url);
+  return `${origin}/api/map/sprites/${assetId}`;
+}
+
+async function resolveJawgSource(source: Record<string, unknown>, app: AppState, origin: string) {
+  if (Array.isArray(source.tiles)) {
+    source.tiles = source.tiles.map((value) =>
+      typeof value === "string" && isAllowedJawgUrl(value)
+        ? rewriteTileTemplate(value, origin)
+        : value,
+    );
+    return source;
+  }
+
+  if (typeof source.url !== "string" || !isAllowedJawgUrl(source.url)) {
+    return source;
+  }
+
+  const upstream = await fetch(withJawgToken(source.url, requireJawgApiKey(app)));
+  if (!upstream.ok) {
+    throw new Error(`Map source request failed: ${upstream.status}`);
+  }
+
+  const payload = (await upstream.json()) as Record<string, unknown>;
+  source.tiles = Array.isArray(payload.tiles)
+    ? payload.tiles.map((value) =>
+        typeof value === "string" && isAllowedJawgUrl(value)
+          ? rewriteTileTemplate(value, origin)
+          : value,
+      )
+    : source.tiles;
+
+  for (const key of ["minzoom", "maxzoom", "bounds", "attribution", "scheme", "tileSize"]) {
+    if (payload[key] !== undefined && source[key] === undefined) {
+      source[key] = payload[key];
+    }
+  }
+
+  delete source.url;
+  return source;
+}
+
+async function rewriteStylePayload(style: Record<string, unknown>, app: AppState, origin: string) {
+  if (style.sources && typeof style.sources === "object") {
+    const entries = Object.entries(style.sources as Record<string, Record<string, unknown>>);
+    const resolved = await Promise.all(
+      entries.map(async ([sourceId, source]) => [
+        sourceId,
+        await resolveJawgSource(source, app, origin),
+      ]),
+    );
+    style.sources = Object.fromEntries(resolved);
+  }
+
+  if (typeof style.glyphs === "string" && isAllowedJawgUrl(style.glyphs)) {
+    style.glyphs = rewriteGlyphTemplate(style.glyphs, origin);
+  }
+
+  if (typeof style.sprite === "string" && isAllowedJawgUrl(style.sprite)) {
+    style.sprite = rewriteSpriteBase(style.sprite, origin);
+  }
+
+  if (Array.isArray(style.sprite)) {
+    style.sprite = style.sprite.map((value) =>
+      typeof value === "string" && isAllowedJawgUrl(value)
+        ? rewriteSpriteBase(value, origin)
+        : value,
+    );
+  }
+
+  if (style.metadata && typeof style.metadata === "object") {
+    for (const [key, value] of Object.entries(style.metadata as Record<string, unknown>)) {
+      if (typeof value === "string" && isAllowedJawgUrl(value)) {
+        (style.metadata as Record<string, unknown>)[key] = rewriteSourceUrl(value, origin);
+      }
+    }
+  }
+
+  return style;
+}
+
+export async function serveMapStyle(app: AppState, requestUrl: string) {
+  if (!app.config.jawgApiKey) {
+    return new Response("Map API configuration is missing.", { status: 503 });
+  }
+
+  const upstreamUrl = `https://api.jawg.io/styles/${encodeURIComponent(
+    app.config.jawgStyleId,
+  )}.json`;
+  const upstream = await fetch(withJawgToken(upstreamUrl, app.config.jawgApiKey));
+  if (!upstream.ok) {
+    return new Response("Map style unavailable", { status: 502 });
+  }
+
+  const payload = (await upstream.json()) as Record<string, unknown>;
+  const rewritten = await rewriteStylePayload(payload, app, new URL(requestUrl).origin);
+
+  return Response.json(rewritten, {
+    headers: forwardJsonHeaders(upstream.headers),
+  });
 }
 
 export async function serveMapTile(
   app: AppState,
+  assetId: string,
   z: string,
   x: string,
   y: string,
-  retina: boolean,
 ) {
-  const key = tileCacheKey(z, x, y, retina);
-  const now = Date.now();
-  const cached = tileCache.get(key);
-
-  if (cached && cached.expiresAt > now) {
-    return new Response(cached.body.slice(0), {
-      headers: {
-        "Content-Type": cached.contentType,
-        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-        "X-Rokum-Tile-Cache": "HIT",
-      },
-    });
+  const entry = mapAssetManifest.get(assetId);
+  if (!entry || entry.kind !== "tile") {
+    return new Response("Map resource not found", { status: 404 });
   }
 
-  let inflight = tileInflight.get(key);
-  if (!inflight) {
-    inflight = (async () => {
-      const upstreamResponse = await fetch(buildTileUpstreamUrl(app, z, x, y, retina), {
-        headers: {
-          Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        },
-      });
+  const upstreamUrl = entry.url
+    .replace("{z}", z)
+    .replace("{x}", x)
+    .replace("{y}", y);
 
-      if (!upstreamResponse.ok) {
-        throw new Error(`Tile upstream request failed: ${upstreamResponse.status}`);
-      }
+  return fetchMapBinary(app, upstreamUrl, `tile:${assetId}:${z}:${x}:${y}`);
+}
 
-      return {
-        body: await upstreamResponse.arrayBuffer(),
-        contentType: upstreamResponse.headers.get("content-type") ?? "image/png",
-      };
-    })();
-
-    tileInflight.set(key, inflight);
+export async function serveMapGlyph(
+  app: AppState,
+  assetId: string,
+  fontstack: string,
+  range: string,
+) {
+  const entry = mapAssetManifest.get(assetId);
+  if (!entry || entry.kind !== "glyph") {
+    return new Response("Map resource not found", { status: 404 });
   }
 
-  try {
-    const { body, contentType } = await inflight;
+  const upstreamUrl = entry.url
+    .replace("{fontstack}", encodeURIComponent(fontstack))
+    .replace("{range}", range);
 
-    tileCache.delete(key);
-    tileCache.set(key, {
-      body,
-      contentType,
-      expiresAt: now + TILE_CACHE_TTL_MS,
-    });
+  return fetchMapBinary(app, upstreamUrl, `glyph:${assetId}:${fontstack}:${range}`);
+}
 
-    while (tileCache.size > TILE_CACHE_MAX_ENTRIES) {
-      evictOldestTileCacheEntry();
-    }
-
-    return new Response(body.slice(0), {
-      headers: {
-        "Content-Type": contentType,
-        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-        "X-Rokum-Tile-Cache": "MISS",
-      },
-    });
-  } catch (error) {
-    if (cached) {
-      return new Response(cached.body.slice(0), {
-        headers: {
-          "Content-Type": cached.contentType,
-          "Cache-Control": "public, max-age=300, stale-while-revalidate=604800",
-          "X-Rokum-Tile-Cache": "STALE",
-        },
-      });
-    }
-
-    console.warn("Map tile fetch failed", error);
-    return new Response("Tile unavailable", { status: 502 });
-  } finally {
-    tileInflight.delete(key);
+export async function serveMapSprite(
+  app: AppState,
+  assetId: string,
+  suffix: ".json" | ".png" | "@2x.json" | "@2x.png",
+) {
+  const entry = mapAssetManifest.get(assetId);
+  if (!entry || entry.kind !== "sprite") {
+    return new Response("Map resource not found", { status: 404 });
   }
+
+  return fetchMapBinary(app, `${entry.url}${suffix}`, `sprite:${assetId}:${suffix}`);
+}
+
+export async function serveMapSource(app: AppState, assetId: string) {
+  const entry = mapAssetManifest.get(assetId);
+  if (!entry || entry.kind !== "source") {
+    return new Response("Map resource not found", { status: 404 });
+  }
+
+  return fetchMapBinary(app, entry.url, `source:${assetId}`);
 }
 
 export async function initApp() {

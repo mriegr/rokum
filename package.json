@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "bun --hot index.ts",
     "start": "bun index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "test:browser": "RUN_BROWSER_TESTS=1 bun test src/mapView.browser.test.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -15,6 +16,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "maplibre-gl": "^5.24.0",
     "playwright": "^1.60.0"
   }
 }

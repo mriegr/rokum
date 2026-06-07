@@ -33,14 +33,19 @@ OVERPASS_BASE_URL=https://overpass-api.de/api/interpreter
 WALKING_ROUTER_BASE_URL=https://router.project-osrm.org
 TRANSIT_MODE=heuristic
 TRANSIT_BASE_URL=
+JAWG_API=
+JAWG_STYLE_ID=jawg-streets
 ```
 
 `TRANSIT_MODE=otp1` and `TRANSIT_BASE_URL` can be used if you have an OpenTripPlanner-compatible `/plan` endpoint. Otherwise the app uses a transit-time heuristic based on distance and U-Bahn access.
+
+Set `JAWG_API` to enable the vector map view. If it is missing, Rokum keeps the map tab visible but shows a disabled-state message instead of loading the basemap.
 
 ## Test
 
 ```bash
 bun test
+bun run test:browser
 ```
 
 ## Docker
