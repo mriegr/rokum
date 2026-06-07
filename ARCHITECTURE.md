@@ -205,6 +205,8 @@ Important consequence: `sport_studio` is special. It is not fetched from Overpas
 - Station pins use the same U-Bahn toggle as the route lines
 - Normalizes route colors from Overpass before sending them to the browser so MapLibre can render them reliably
 - Resolves nested route relations when assembling U-Bahn polylines
+- Groups U-Bahn routes by line reference (`ref`), merging all direction-specific relations into a single route per line, and deduplicates overlapping or reversed path segments
+- Consolidated station pins with the same name within 500 meters by computing their geographical center (averaged coordinates) to output a single pin per station
 - Returns empty overlays on failure and caches that failure briefly
 
 ### Map tiles

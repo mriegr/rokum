@@ -561,6 +561,7 @@ out skel qt;
 
   const nodeMap = new Map<number, { latitude: number; longitude: number }>();
   const wayMap = new Map<number, number[]>();
+  const wayTagsMap = new Map<number, Record<string, string>>();
   const relationMap = new Map<number, NonNullable<(typeof routesPayload.elements)[number]>>();
   const referencedRouteRelationIds = new Set<number>();
   const ubahnStations = new Map<string, TransitStop>();
@@ -587,10 +588,22 @@ out skel qt;
       }
     }
 
-    if (element.type === "way" && element.nodes) {
-      wayMap.set(element.id, element.nodes);
+    if (element.type === "way") {
+      if (element.nodes) {
+        wayMap.set(element.id, element.nodes);
+      }
+      if (element.tags) {
+        wayTagsMap.set(element.id, element.tags);
+      }
     }
   }
+
+  const stationCandidates: Array<{
+    name: string;
+    latitude: number;
+    longitude: number;
+    modes: string[];
+  }> = [];
 
   for (const element of routesPayload.elements) {
     if (!element.tags) {
@@ -632,13 +645,52 @@ out skel qt;
     }
 
     const name = element.tags.name || element.tags.ref || "U-Bahn station";
-    const key = `${name}|${latitude.toFixed(4)}|${longitude.toFixed(4)}`;
+    stationCandidates.push({ name, latitude, longitude, modes });
+  }
+
+  // Group stations by name and proximity (within 500 meters) and average coordinates
+  const stationGroups: Array<Array<{
+    name: string;
+    latitude: number;
+    longitude: number;
+    modes: string[];
+  }>> = [];
+
+  for (const cand of stationCandidates) {
+    let addedToGroup = false;
+    for (const group of stationGroups) {
+      const representative = group[0];
+      if (representative && representative.name === cand.name) {
+        const dist = haversineDistanceMeters(representative, cand);
+        if (dist <= 500) {
+          group.push(cand);
+          addedToGroup = true;
+          break;
+        }
+      }
+    }
+    if (!addedToGroup) {
+      stationGroups.push([cand]);
+    }
+  }
+
+  for (const group of stationGroups) {
+    const firstNode = group[0];
+    if (!firstNode) {
+      continue;
+    }
+    const name = firstNode.name;
+    const avgLatitude = group.reduce((sum, s) => sum + s.latitude, 0) / group.length;
+    const avgLongitude = group.reduce((sum, s) => sum + s.longitude, 0) / group.length;
+    const mergedModes = Array.from(new Set(group.flatMap((s) => s.modes)));
+
+    const key = `${name}|${avgLatitude.toFixed(4)}|${avgLongitude.toFixed(4)}`;
     ubahnStations.set(key, {
       id: key,
       name,
-      latitude,
-      longitude,
-      modes: ["U-Bahn"],
+      latitude: avgLatitude,
+      longitude: avgLongitude,
+      modes: mergedModes.length > 0 ? mergedModes : ["U-Bahn"],
     });
   }
 
@@ -655,6 +707,24 @@ out skel qt;
 
     for (const member of relation.members ?? []) {
       if (member.type === "way") {
+        if (member.role === "platform" || member.role === "stop" || member.role === "station") {
+          continue;
+        }
+
+        const tags = wayTagsMap.get(member.ref);
+        if (tags) {
+          if (
+            tags.railway === "platform" ||
+            tags.public_transport === "platform" ||
+            tags.highway === "platform" ||
+            tags.railway === "station" ||
+            tags.public_transport === "station" ||
+            tags.amenity === "station"
+          ) {
+            continue;
+          }
+        }
+
         const nodeIds = wayMap.get(member.ref);
         if (!nodeIds) {
           continue;
@@ -668,6 +738,24 @@ out skel qt;
           }));
 
         if (path.length >= 2) {
+          // Check if the path is a small closed loop (typical of station/platform polygons)
+          if (path.length >= 3) {
+            const first = path[0];
+            const last = path[path.length - 1];
+            if (first && last && haversineDistanceMeters(first, last) < 2) {
+              let maxDist = 0;
+              for (let i = 0; i < path.length; i++) {
+                for (let j = i + 1; j < path.length; j++) {
+                  const d = haversineDistanceMeters(path[i]!, path[j]!);
+                  if (d > maxDist) maxDist = d;
+                }
+              }
+              if (maxDist < 250) {
+                // Skip small loops
+                continue;
+              }
+            }
+          }
           paths.push(path);
         }
         continue;
@@ -685,6 +773,15 @@ out skel qt;
     return paths;
   }
 
+  // Group route relations by ref (subway line, e.g., "U1")
+  const routeGroups = new Map<string, Array<{
+    id: string;
+    name: string;
+    ref: string;
+    color: string | null;
+    paths: Array<Array<{ latitude: number; longitude: number }>>;
+  }>>();
+
   for (const element of routesPayload.elements) {
     if (element.type !== "relation" || element.tags?.route !== "subway") {
       continue;
@@ -699,12 +796,206 @@ out skel qt;
       continue;
     }
 
-    ubahnRoutes.push({
+    const ref = element.tags.ref || "";
+    const color = normalizeMapColor(element.tags.colour || element.tags.color || null);
+    const name = element.tags.name || element.tags.ref || "U-Bahn route";
+
+    const groupKey = ref || `${element.id}`;
+    if (!routeGroups.has(groupKey)) {
+      routeGroups.set(groupKey, []);
+    }
+    routeGroups.get(groupKey)!.push({
       id: `${element.id}`,
-      name: element.tags.name || element.tags.ref || "U-Bahn route",
-      ref: element.tags.ref || "",
-      color: normalizeMapColor(element.tags.colour || element.tags.color || null),
+      name,
+      ref,
+      color,
       paths,
+    });
+  }
+
+  for (const [groupKey, routesInGroup] of routeGroups.entries()) {
+    if (routesInGroup.length === 0) {
+      continue;
+    }
+
+    const firstRoute = routesInGroup[0];
+    if (!firstRoute) {
+      continue;
+    }
+    const color = routesInGroup.find((r) => r.color !== null)?.color ?? null;
+
+    // Merge paths from all routes in this group
+    const mergedPaths: Array<Array<{ latitude: number; longitude: number }>> = [];
+    for (const r of routesInGroup) {
+      mergedPaths.push(...r.paths);
+    }
+
+    // --- Build unified route lines from all direction paths ---
+    // Cluster all points, build an adjacency graph weighted by edge
+    // frequency (edges used by both directions get higher weight), then
+    // extract the trunk (max-weight path) and any branch paths.
+    const toleranceMeters = 50;
+
+    // 1. Cluster all coordinates
+    const points: Array<{ latitude: number; longitude: number }> = [];
+    for (const path of mergedPaths) {
+      for (const pt of path) {
+        points.push(pt);
+      }
+    }
+
+    const clusters: Array<{
+      center: { latitude: number; longitude: number };
+      pts: Array<{ latitude: number; longitude: number }>;
+    }> = [];
+
+    for (const pt of points) {
+      let foundCluster: (typeof clusters)[number] | null = null;
+      for (const cluster of clusters) {
+        if (haversineDistanceMeters(cluster.center, pt) <= toleranceMeters) {
+          foundCluster = cluster;
+          break;
+        }
+      }
+      if (foundCluster) {
+        foundCluster.pts.push(pt);
+        const n = foundCluster.pts.length;
+        foundCluster.center = {
+          latitude:
+            foundCluster.pts.reduce((s, p) => s + p.latitude, 0) / n,
+          longitude:
+            foundCluster.pts.reduce((s, p) => s + p.longitude, 0) / n,
+        };
+      } else {
+        clusters.push({
+          center: { latitude: pt.latitude, longitude: pt.longitude },
+          pts: [pt],
+        });
+      }
+    }
+
+    // 2. Map each path to a cluster-ID sequence
+    function nearestCluster(
+      pt: { latitude: number; longitude: number },
+    ): number {
+      let best = -1;
+      let bestDist = Infinity;
+      for (let i = 0; i < clusters.length; i++) {
+        const d = haversineDistanceMeters(pt, clusters[i]!.center);
+        if (d < bestDist) {
+          bestDist = d;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    const clusterPaths = mergedPaths
+      .map((path) => {
+        const seq: number[] = [];
+        for (const pt of path) {
+          const id = nearestCluster(pt);
+          if (seq.length === 0 || seq[seq.length - 1] !== id) {
+            seq.push(id);
+          }
+        }
+        return seq;
+      })
+      .filter((seq) => seq.length >= 2);
+
+    if (clusterPaths.length === 0) {
+      continue;
+    }
+
+    // 3. Build adjacency graph with edge weights
+    const adj = new Map<number, Set<number>>();
+    function edgeKey(a: number, b: number) {
+      return a < b ? `${a}:${b}` : `${b}:${a}`;
+    }
+    const edgeWeight = new Map<string, number>();
+
+    for (const cp of clusterPaths) {
+      const seen = new Set<string>();
+      for (let i = 0; i < cp.length - 1; i++) {
+        const a = cp[i]!;
+        const b = cp[i + 1]!;
+        if (a === b) continue;
+        if (!adj.has(a)) adj.set(a, new Set());
+        if (!adj.has(b)) adj.set(b, new Set());
+        adj.get(a)!.add(b);
+        adj.get(b)!.add(a);
+        const key = edgeKey(a, b);
+        if (!seen.has(key)) {
+          edgeWeight.set(key, (edgeWeight.get(key) || 0) + 1);
+          seen.add(key);
+        }
+      }
+    }
+
+    // 4. DFS to find the max-weight simple path (trunk line)
+    const visited = new Set<number>();
+    let bestWeight = 0;
+    let bestPath: number[] = [];
+
+    function dfs(current: number, path: number[], weight: number) {
+      if (weight > bestWeight || (weight === bestWeight && path.length > bestPath.length)) {
+        bestWeight = weight;
+        bestPath = [...path];
+      }
+      const neighbors = adj.get(current);
+      if (!neighbors) return;
+      for (const next of neighbors) {
+        if (!visited.has(next)) {
+          visited.add(next);
+          path.push(next);
+          const ew = edgeWeight.get(edgeKey(current, next)) || 0;
+          dfs(next, path, weight + ew);
+          path.pop();
+          visited.delete(next);
+        }
+      }
+    }
+
+    // Start from endpoints (degree-1 nodes) to reduce search space
+    const endpoints = [...adj.entries()]
+      .filter(([, n]) => n.size === 1)
+      .map(([id]) => id);
+    const startNodes = endpoints.length > 0 ? endpoints : [...adj.keys()];
+
+    for (const start of startNodes) {
+      visited.clear();
+      visited.add(start);
+      dfs(start, [start], 0);
+    }
+
+    // 5. Convert trunk to coordinate path — this is the single route line
+    const trunkPath: Array<{ latitude: number; longitude: number }> = [];
+    for (const id of bestPath) {
+      const c = clusters[id]!;
+      const pt = c.center;
+      if (
+        trunkPath.length === 0 ||
+        trunkPath[trunkPath.length - 1]!.latitude !== pt.latitude ||
+        trunkPath[trunkPath.length - 1]!.longitude !== pt.longitude
+      ) {
+        trunkPath.push({ latitude: pt.latitude, longitude: pt.longitude });
+      }
+    }
+
+    const finalPaths: Array<
+      Array<{ latitude: number; longitude: number }>
+    > = trunkPath.length >= 2 ? [trunkPath] : [];
+
+    const ref = firstRoute.ref;
+    const name = ref ? `U-Bahn ${ref}` : firstRoute.name;
+    const id = ref || firstRoute.id;
+
+    ubahnRoutes.push({
+      id,
+      name,
+      ref,
+      color,
+      paths: finalPaths,
     });
   }
 
