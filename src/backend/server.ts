@@ -828,7 +828,6 @@ export function getPoiCategoryManagementPayload(app: AppState): PoiCategoryManag
         );
       const subcategories = counts
         .filter((row) => row.category === category && row.subcategory)
-        .sort((left, right) => left.subcategory.localeCompare(right.subcategory))
         .map((row) => ({
           category,
           subcategory: row.subcategory,
@@ -837,6 +836,35 @@ export function getPoiCategoryManagementPayload(app: AppState): PoiCategoryManag
           activeItemCount: Number(row.active_item_count ?? 0),
           iconPath: iconMap.get(`${category}:${row.subcategory}`) ?? null,
         }));
+
+      if (category === "sport_studio") {
+        const sportTagCounts = app.database
+          .query(
+            `
+            SELECT json_each.value AS tag, COUNT(*) AS item_count, SUM(is_active) AS active_item_count
+            FROM pois, json_each(tags_json)
+            WHERE category = 'sport_studio' AND json_each.value != ''
+            GROUP BY json_each.value
+          `,
+          )
+          .all() as Array<{
+          tag: string;
+          item_count: number;
+          active_item_count: number | null;
+        }>;
+        for (const row of sportTagCounts) {
+          subcategories.push({
+            category,
+            subcategory: row.tag,
+            label: resolveCategoryLabel(labelMap, category, row.tag),
+            itemCount: Number(row.item_count),
+            activeItemCount: Number(row.active_item_count ?? 0),
+            iconPath: iconMap.get(`${category}:${row.tag}`) ?? null,
+          });
+        }
+      }
+
+      subcategories.sort((left, right) => left.subcategory.localeCompare(right.subcategory));
 
       return {
         category,
