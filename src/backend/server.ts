@@ -15,6 +15,7 @@ import {
   getWeightSettings,
   insertApartment,
   insertCustomPoi,
+  listActivePois,
   listAllPois,
   listApartments,
   listCustomPois,
@@ -48,7 +49,6 @@ import {
   fetchTransitMapOverlay,
   geocodeAddress,
   getActiveCustomPois,
-  listNearbyMapPois,
   routeTransit,
   routeWalking,
   seedSportStudios,
@@ -1089,13 +1089,7 @@ export async function getApartmentMapData(
   }
 
   const scoring = apartment.scoring;
-  const nearbyPois =
-    apartment.latitude !== null && apartment.longitude !== null
-      ? listNearbyMapPois(app.database, {
-          latitude: apartment.latitude,
-          longitude: apartment.longitude,
-        })
-      : [];
+  const nearbyPois = listActivePois(app.database);
   const sportStudioTags = Array.from(
     new Set(
       nearbyPois
