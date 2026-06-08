@@ -619,9 +619,6 @@ export function bindPoiAdminEvents() {
       state.visibleManagedPoiCategories = {
         supermarket: true,
         sport_studio: true,
-        ubahn: true,
-        cafe: true,
-        park_or_river: true,
         custom: true,
       };
       state.selectedManagedSportTags = [];

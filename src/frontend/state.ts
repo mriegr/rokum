@@ -93,9 +93,6 @@ export const state: AppState = {
     rooms: 0.9,
     supermarket: 1,
     sportStudio: 1,
-    ubahn: 1.2,
-    cafe: 0.7,
-    parkOrRiver: 0.8,
     customPoi: 1.1,
   },
   mapConfig: {
@@ -115,9 +112,6 @@ export const state: AppState = {
   visiblePoiCategories: {
     supermarket: true,
     sport_studio: true,
-    ubahn: true,
-    cafe: true,
-    park_or_river: true,
   },
   showPoiList: true,
   selectedSportTags: [],
@@ -130,9 +124,6 @@ export const state: AppState = {
   visibleManagedPoiCategories: {
     supermarket: true,
     sport_studio: true,
-    ubahn: true,
-    cafe: true,
-    park_or_river: true,
     custom: true,
   },
   selectedManagedSportTags: [],
@@ -165,26 +156,17 @@ export const UBAHN_LAYER_ID = "ubahn-layer";
 export const POI_LABELS: Record<StandardPoiCategory, string> = {
   supermarket: "Supermarkets",
   sport_studio: "Sport studios",
-  ubahn: "U-Bahn",
-  cafe: "Cafes",
-  park_or_river: "Parks / river",
 };
 
 export const MANAGED_POI_CATEGORY_ORDER: PoiCategory[] = [
   "sport_studio",
   "supermarket",
   "custom",
-  "ubahn",
-  "cafe",
-  "park_or_river",
 ];
 
 export const MANAGED_POI_LABELS: Record<PoiCategory, string> = {
   supermarket: "Supermarkets",
   sport_studio: "Sport studios",
-  ubahn: "U-Bahn",
-  cafe: "Cafes",
-  park_or_river: "Parks / river",
   custom: "Custom POIs",
 };
 
@@ -195,7 +177,7 @@ export function setPoiCategoryLabels(records: PoiCategoryLabelRecord[]) {
 }
 
 export function standardPoiLabel(category: StandardPoiCategory) {
-  return state.poiCategoryLabelMap.get(poiIconKey(category, "")) ?? POI_LABELS[category];
+  return state.poiCategoryLabelMap.get(poiIconKey(category, "")) ?? POI_LABELS[category] ?? category;
 }
 
 export function managedPoiCategoryLabel(category: PoiCategory) {

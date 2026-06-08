@@ -51,6 +51,7 @@ import {
   getActiveCustomPois,
   routeTransit,
   routeWalking,
+  seedSportStudioIcons,
   seedSportStudios,
   storeUploadedPhotos,
 } from "./services";
@@ -72,14 +73,9 @@ import type {
   StandardPoiScore,
   WeightSettings,
 } from "../shared/types";
+import { STANDARD_POI_CATEGORIES } from "../shared/types";
 
-const STANDARD_CATEGORIES: StandardPoiCategory[] = [
-  "supermarket",
-  "sport_studio",
-  "ubahn",
-  "cafe",
-  "park_or_river",
-];
+const STANDARD_CATEGORIES = [...STANDARD_POI_CATEGORIES];
 const JAWG_ALLOWED_HOSTS = new Set(["api.jawg.io", "tile.jawg.io"]);
 
 type MapAssetKind = "tile" | "glyph" | "sprite" | "source";
@@ -140,22 +136,8 @@ function mergeWeightSettings(input: unknown, current: WeightSettings): WeightSet
     rooms: Number(payload.rooms ?? current.rooms),
     supermarket: Number(payload.supermarket ?? current.supermarket),
     sportStudio: Number(payload.sportStudio ?? current.sportStudio),
-    ubahn: Number(payload.ubahn ?? current.ubahn),
-    cafe: Number(payload.cafe ?? current.cafe),
-    parkOrRiver: Number(payload.parkOrRiver ?? current.parkOrRiver),
     customPoi: Number(payload.customPoi ?? current.customPoi),
   };
-}
-
-function scoreCategoryWeightKey(category: StandardPoiCategory) {
-  switch (category) {
-    case "sport_studio":
-      return "sportStudio";
-    case "park_or_river":
-      return "parkOrRiver";
-    default:
-      return category;
-  }
 }
 
 function categoryLabel(category: StandardPoiCategory | "custom") {
@@ -164,12 +146,6 @@ function categoryLabel(category: StandardPoiCategory | "custom") {
       return "Supermarket";
     case "sport_studio":
       return "Sport studio";
-    case "ubahn":
-      return "U-Bahn";
-    case "cafe":
-      return "Cafe";
-    case "park_or_river":
-      return "Park / river";
     case "custom":
       return "Custom";
   }
@@ -208,7 +184,10 @@ function resolveCategoryLabel(
 
 function buildManagedPois(app: AppState): ManagedPoi[] {
   const labels = buildCategoryLabelMap(app);
-  const standardPois = listAllPois(app.database).map(
+  const validCategories = new Set<string>(STANDARD_POI_CATEGORIES);
+  const standardPois = listAllPois(app.database)
+    .filter((poi) => validCategories.has(poi.category))
+    .map(
     (poi): ManagedPoi => ({
       id: poi.id,
       kind: "standard",
@@ -236,7 +215,7 @@ function buildManagedPois(app: AppState): ManagedPoi[] {
       address: poi.address,
       isActive: poi.isActive,
       notes: poi.notes,
-      source: "custom",
+      source: ["custom"],
       tags: [],
       latitude: poi.latitude,
       longitude: poi.longitude,
@@ -303,10 +282,7 @@ async function buildStandardPoiScores(app: AppState, apartment: Apartment) {
 
   const scores: StandardPoiScore[] = [];
   for (const category of STANDARD_CATEGORIES) {
-    const candidates =
-      category === "ubahn"
-        ? ubahnCandidates
-        : await ensurePoisForCategory(app.database, app.config, category, origin);
+    const candidates = await ensurePoisForCategory(app.database, app.config, category, origin);
 
     const bestCandidate = candidates[0];
     if (!bestCandidate) {
@@ -754,6 +730,7 @@ export async function initApp() {
   const database = createDatabase(config);
   await seedSportStudios(database);
   mkdirSync(join(config.uploadDirectory, "icons"), { recursive: true });
+  seedSportStudioIcons(database, join(config.uploadDirectory, "icons"));
 
   return {
     config,

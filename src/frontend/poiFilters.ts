@@ -33,7 +33,7 @@ export function indexManagedPois(pois: ManagedPoi[]) {
       poi.categoryLabel,
       poi.kind,
       poi.notes,
-      poi.source ?? "",
+      poi.source?.join(" ") ?? "",
       poi.tags.join(" "),
     ]
       .join(" ")

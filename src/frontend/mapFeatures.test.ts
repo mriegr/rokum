@@ -172,9 +172,6 @@ test("combinedPoiFeatureCollection combines standard and custom pois", () => {
   state.visiblePoiCategories = {
     supermarket: true,
     sport_studio: true,
-    ubahn: true,
-    cafe: true,
-    park_or_river: true,
   };
   state.selectedSportTags = [];
   state.mapPayload = {

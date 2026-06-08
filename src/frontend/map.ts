@@ -265,12 +265,6 @@ function fallbackIconFromImageId(imageId: string) {
         return makeIcon("#e67e22", "M");
       case "sport_studio":
         return makeIcon("#2ecc71", "S");
-      case "cafe":
-        return makeIcon("#a0522d", "C");
-      case "park_or_river":
-        return makeIcon("#27ae60", "P");
-      case "ubahn":
-        return makeIcon("#0056b8", "U");
       default:
         return makeIcon("#5c6670", titleCaseSlug(category).charAt(0) || "P");
     }
@@ -301,9 +295,6 @@ function registerCategoryIcons() {
 
   map.addImage("cat-supermarket", makeIcon("#e67e22", "M"));
   map.addImage("cat-sport_studio", makeIcon("#2ecc71", "S"));
-  map.addImage("cat-cafe", makeIcon("#a0522d", "C"));
-  map.addImage("cat-park_or_river", makeIcon("#27ae60", "P"));
-  map.addImage("cat-ubahn", makeIcon("#0056b8", "U"));
 }
 
 async function registerChainIcons() {

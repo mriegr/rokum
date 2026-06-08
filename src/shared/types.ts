@@ -1,9 +1,6 @@
-export type StandardPoiCategory =
-  | "supermarket"
-  | "sport_studio"
-  | "ubahn"
-  | "cafe"
-  | "park_or_river";
+export const STANDARD_POI_CATEGORIES = ["supermarket", "sport_studio"] as const;
+
+export type StandardPoiCategory = (typeof STANDARD_POI_CATEGORIES)[number];
 
 export type PoiCategory = StandardPoiCategory | "custom";
 
@@ -54,7 +51,7 @@ export type PoiRecord = {
   isActive: boolean;
   latitude: number;
   longitude: number;
-  source: string;
+  source: string[];
   externalId: string | null;
   tags: string[];
   note: string;
@@ -80,9 +77,6 @@ export type WeightSettings = {
   rooms: number;
   supermarket: number;
   sportStudio: number;
-  ubahn: number;
-  cafe: number;
-  parkOrRiver: number;
   customPoi: number;
 };
 
@@ -199,7 +193,7 @@ export type ManagedPoi = {
   address: string;
   isActive: boolean;
   notes: string;
-  source: string | null;
+  source: string[] | null;
   tags: string[];
   latitude: number | null;
   longitude: number | null;

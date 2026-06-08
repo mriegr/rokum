@@ -3,18 +3,19 @@ import type {
   Apartment,
   ApartmentInput,
   ApartmentPhoto,
-  ApartmentScoreSnapshot,
   AppConfig,
+  ApartmentScoreSnapshot,
   CustomPoi,
   CustomPoiInput,
-  PoiCategoryLabelRecord,
   CustomPoiScore,
+  PoiCategoryLabelRecord,
   PoiIconRecord,
   PoiRecord,
   StandardPoiCategory,
   StandardPoiScore,
   WeightSettings,
 } from "../shared/types";
+import { STANDARD_POI_CATEGORIES } from "../shared/types";
 import { DEFAULT_WEIGHTS } from "./scoring";
 
 type SqlDatabase = Database;
@@ -60,6 +61,13 @@ function mapApartment(row: Record<string, unknown>, photos: ApartmentPhoto[]): A
     updatedAt: null,
   };
 
+  const validCategories = new Set<string>(STANDARD_POI_CATEGORIES);
+  const scoring = parseJson(
+    row.scoring_payload === null ? null : String(row.scoring_payload),
+    fallbackScoring,
+  );
+  scoring.standardPoiScores = scoring.standardPoiScores.filter((s) => validCategories.has(s.category));
+
   return {
     id: Number(row.id),
     address: String(row.address),
@@ -72,10 +80,7 @@ function mapApartment(row: Record<string, unknown>, photos: ApartmentPhoto[]): A
     roomCount: Number(row.room_count),
     description: String(row.description ?? ""),
     totalScore: Number(row.total_score ?? 0),
-    scoring: parseJson(
-      row.scoring_payload === null ? null : String(row.scoring_payload),
-      fallbackScoring,
-    ),
+    scoring,
     photos,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
@@ -97,6 +102,14 @@ function mapCustomPoi(row: Record<string, unknown>): CustomPoi {
 }
 
 function mapPoi(row: Record<string, unknown>): PoiRecord {
+  const rawSource = String(row.source);
+  let source: string[];
+  try {
+    source = JSON.parse(rawSource);
+    if (!Array.isArray(source)) source = [rawSource];
+  } catch {
+    source = [rawSource];
+  }
   return {
     id: Number(row.id),
     category: String(row.category) as StandardPoiCategory,
@@ -106,7 +119,7 @@ function mapPoi(row: Record<string, unknown>): PoiRecord {
     isActive: Boolean(row.is_active),
     latitude: Number(row.latitude),
     longitude: Number(row.longitude),
-    source: String(row.source),
+    source,
     externalId: row.external_id === null ? null : String(row.external_id),
     tags: parseJson(row.tags_json === null ? null : String(row.tags_json), [] as string[]),
     note: String(row.note ?? ""),
@@ -236,6 +249,16 @@ export function createDatabase(config: AppConfig) {
   }
   if (!poiColumns.some((column) => column.name === "subcategory")) {
     database.exec("ALTER TABLE pois ADD COLUMN subcategory TEXT NOT NULL DEFAULT '';");
+  }
+
+  // Migrate legacy single-value source to JSON array
+  const rowsWithLegacySource = database
+    .query("SELECT id, source FROM pois WHERE source NOT LIKE '[%'")
+    .all() as Array<{ id: number; source: string }>;
+  for (const row of rowsWithLegacySource) {
+    database
+      .query("UPDATE pois SET source = ?1 WHERE id = ?2")
+      .run(JSON.stringify([row.source]), row.id);
   }
 
   const existingWeights = database
@@ -600,7 +623,7 @@ export function insertOrIgnorePoi(database: SqlDatabase, poi: Omit<PoiRecord, "i
       poi.isActive ? 1 : 0,
       poi.latitude,
       poi.longitude,
-      poi.source,
+      JSON.stringify(poi.source),
       poi.externalId,
       JSON.stringify(poi.tags),
       poi.note,
@@ -618,7 +641,7 @@ export function listAllPois(database: SqlDatabase) {
   return (database.query("SELECT * FROM pois").all() as Record<string, unknown>[]).map(mapPoi);
 }
 
-export function listActivePoisByCategory(database: SqlDatabase, category: StandardPoiCategory) {
+export function listActivePoisByCategory(database: SqlDatabase, category: string) {
   return (database
     .query("SELECT * FROM pois WHERE category = ?1 AND is_active = 1")
     .all(category) as Record<string, unknown>[]).map(mapPoi);

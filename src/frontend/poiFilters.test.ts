@@ -32,9 +32,6 @@ function allCategories(visible = true): Record<PoiCategory, boolean> {
   return {
     supermarket: visible,
     sport_studio: visible,
-    ubahn: visible,
-    cafe: visible,
-    park_or_river: visible,
     custom: visible,
   };
 }
@@ -58,7 +55,7 @@ test("search matches indexed poi fields", () => {
       categoryLabel: "Sport studio",
       name: "Morning Flow",
       address: "Schwanthalerstrasse 1",
-      source: "urbansportsclub",
+      source: ["urbansportsclub"],
       tags: ["Yoga"],
     }),
     poi({

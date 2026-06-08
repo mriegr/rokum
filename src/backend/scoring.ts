@@ -11,9 +11,6 @@ import type {
 export const CATEGORY_LABELS: Record<StandardPoiCategory, string> = {
   supermarket: "Supermarket",
   sport_studio: "Sport studio",
-  ubahn: "U-Bahn",
-  cafe: "Cafes",
-  park_or_river: "Park or river",
 };
 
 export const DEFAULT_WEIGHTS: WeightSettings = {
@@ -21,9 +18,6 @@ export const DEFAULT_WEIGHTS: WeightSettings = {
   rooms: 0.9,
   supermarket: 1,
   sportStudio: 1,
-  ubahn: 1.2,
-  cafe: 0.7,
-  parkOrRiver: 0.8,
   customPoi: 1.1,
 };
 
@@ -138,8 +132,6 @@ function categoryWeightKey(category: StandardPoiCategory) {
   switch (category) {
     case "sport_studio":
       return "sportStudio";
-    case "park_or_river":
-      return "parkOrRiver";
     default:
       return category;
   }

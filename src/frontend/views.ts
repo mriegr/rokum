@@ -265,9 +265,6 @@ export function renderSettingsForm() {
           ["rooms", "Rooms"],
           ["supermarket", "Supermarket"],
           ["sportStudio", "Sport studio"],
-          ["ubahn", "U-Bahn"],
-          ["cafe", "Cafes"],
-          ["parkOrRiver", "Park or river"],
           ["customPoi", "Custom places"],
         ]
           .map(
@@ -554,7 +551,7 @@ export function renderPoiRow(poi: ManagedPoi, selectedKeys: Set<string>) {
         ${poi.notes ? `<p class="poi-notes">${escapeHtml(poi.notes)}</p>` : ""}
       </div>
       <div class="poi-meta-cell">
-        <p>${escapeHtml(poi.source ?? "n/a")}</p>
+        <p>${escapeHtml(poi.source?.join(", ") ?? "n/a")}</p>
         <p>${poi.latitude !== null && poi.longitude !== null ? `${poi.latitude.toFixed(5)}, ${poi.longitude.toFixed(5)}` : "No coordinates"}</p>
       </div>
       <div class="poi-actions-cell">
