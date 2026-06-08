@@ -38,6 +38,9 @@ type Coordinates = {
 const STANDARD_RADIUS_METERS = 1800;
 const USER_AGENT = "rokum-apartment-shortlist/1.0";
 const OVERPASS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const ADDRESS_SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const ADDRESS_SEARCH_STALE_TTL_MS = 24 * 60 * 60 * 1000;
+const ADDRESS_SEARCH_CACHE_MAX_ENTRIES = 200;
 const MAX_APARTMENT_PHOTO_BYTES = 15 * 1024 * 1024;
 
 type OverpassCacheEntry = {
@@ -46,6 +49,35 @@ type OverpassCacheEntry = {
 };
 
 const overpassCache = new Map<string, OverpassCacheEntry>();
+
+export type MapAddressSuggestion = {
+  displayLabel: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+};
+
+type AddressSearchCacheEntry = {
+  expiresAt: number;
+  staleUntil: number;
+  suggestions: MapAddressSuggestion[];
+};
+
+type JawgAutocompletePayload = {
+  features?: Array<{
+    geometry?: {
+      type?: string;
+      coordinates?: unknown[];
+    };
+    properties?: {
+      label?: string;
+      name?: string;
+    };
+  }>;
+};
+
+const addressSearchCache = new Map<string, AddressSearchCacheEntry>();
+const addressSearchInflight = new Map<string, Promise<MapAddressSuggestion[]>>();
 
 function toRadians(value: number) {
   return (value * Math.PI) / 180;
@@ -151,6 +183,115 @@ export async function geocodeAddress(config: AppConfig, address: string) {
     latitude: Number(first.lat),
     longitude: Number(first.lon),
   };
+}
+
+function isWithinMunichGreaterArea(latitude: number, longitude: number) {
+  const [[west, south], [east, north]] = MUNICH_GREATER_AREA_BOUNDS;
+  return longitude >= west && longitude <= east && latitude >= south && latitude <= north;
+}
+
+function normalizeAddressSuggestions(payload: JawgAutocompletePayload) {
+  return (payload.features ?? []).flatMap((feature) => {
+    const address = feature.properties?.label?.trim();
+    const displayLabel = feature.properties?.name?.trim() || address?.split(",")[0]?.trim();
+    const coordinates = feature.geometry?.coordinates;
+    const longitude = Number(coordinates?.[0]);
+    const latitude = Number(coordinates?.[1]);
+    if (
+      !address ||
+      !displayLabel ||
+      feature.geometry?.type !== "Point" ||
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      !isWithinMunichGreaterArea(latitude, longitude)
+    ) {
+      return [];
+    }
+
+    return [{
+      displayLabel,
+      address,
+      latitude,
+      longitude,
+    }];
+  }).slice(0, 5);
+}
+
+function cacheAddressSuggestions(cacheKey: string, suggestions: MapAddressSuggestion[]) {
+  if (!addressSearchCache.has(cacheKey) && addressSearchCache.size >= ADDRESS_SEARCH_CACHE_MAX_ENTRIES) {
+    const oldestKey = addressSearchCache.keys().next().value;
+    if (oldestKey) {
+      addressSearchCache.delete(oldestKey);
+    }
+  }
+
+  const now = Date.now();
+  addressSearchCache.delete(cacheKey);
+  addressSearchCache.set(cacheKey, {
+    suggestions,
+    expiresAt: now + ADDRESS_SEARCH_CACHE_TTL_MS,
+    staleUntil: now + ADDRESS_SEARCH_STALE_TTL_MS,
+  });
+}
+
+export async function searchMapAddresses(config: AppConfig, query: string) {
+  if (!config.jawgApiKey) {
+    throw new Error("Map API configuration is missing.");
+  }
+  const jawgApiKey = config.jawgApiKey;
+
+  const normalizedQuery = query.trim().replace(/\s+/g, " ");
+  const cacheKey = normalizedQuery.toLocaleLowerCase("de-DE");
+  const now = Date.now();
+  const cached = addressSearchCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    addressSearchCache.delete(cacheKey);
+    addressSearchCache.set(cacheKey, cached);
+    return cached.suggestions;
+  }
+  if (cached && cached.staleUntil <= now) {
+    addressSearchCache.delete(cacheKey);
+  }
+
+  const existingRequest = addressSearchInflight.get(cacheKey);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = (async () => {
+    try {
+      const [[west, south], [east, north]] = MUNICH_GREATER_AREA_BOUNDS;
+      const url = new URL("https://api.jawg.io/places/v1/autocomplete");
+      url.searchParams.set("text", normalizedQuery);
+      url.searchParams.set("access-token", jawgApiKey);
+      url.searchParams.set("boundary.rect.min_lon", String(west));
+      url.searchParams.set("boundary.rect.min_lat", String(south));
+      url.searchParams.set("boundary.rect.max_lon", String(east));
+      url.searchParams.set("boundary.rect.max_lat", String(north));
+      url.searchParams.set("layers", "address,street,venue");
+      url.searchParams.set("lang", "de");
+      url.searchParams.set("size", "5");
+
+      const payload = await fetchJson<JawgAutocompletePayload>(url.toString());
+      if (!Array.isArray(payload.features)) {
+        throw new Error("Jawg autocomplete returned an invalid payload");
+      }
+
+      const suggestions = normalizeAddressSuggestions(payload);
+      cacheAddressSuggestions(cacheKey, suggestions);
+      return suggestions;
+    } catch (error) {
+      if (cached && cached.staleUntil > Date.now()) {
+        return cached.suggestions;
+      }
+      throw error;
+    } finally {
+      addressSearchInflight.delete(cacheKey);
+    }
+  })();
+
+  addressSearchInflight.set(cacheKey, request);
+  return request;
 }
 
 function overpassQuery(category: string, latitude: number, longitude: number) {

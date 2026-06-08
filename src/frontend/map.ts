@@ -12,6 +12,8 @@ import {
   POI_SPIDER_LEG_LAYER_ID,
   POI_SPIDER_LEG_SOURCE_ID,
   POI_SOURCE_ID,
+  SEARCHED_ADDRESS_LAYER_ID,
+  SEARCHED_ADDRESS_SOURCE_ID,
   UBAHN_LAYER_ID,
   UBAHN_SOURCE_ID,
   UBAHN_STATION_LAYER_ID,
@@ -23,6 +25,7 @@ import { mapIsAvailable } from "./helpers";
 import {
   apartmentFeatureCollection,
   combinedPoiFeatureCollection,
+  searchedAddressFeatureCollection,
   spiderfyPoiFeatureCollection,
   ubahnRouteFeatureCollection,
   ubahnStationFeatureCollection,
@@ -116,12 +119,26 @@ export function fitMapToPayload() {
   });
 }
 
+export function focusSearchedAddress() {
+  const selection = state.mapAddressSelection;
+  if (!mapReady || !map || !selection) {
+    return;
+  }
+
+  setSourceData(SEARCHED_ADDRESS_SOURCE_ID, searchedAddressFeatureCollection());
+  map.jumpTo({
+    center: [selection.longitude, selection.latitude],
+    zoom: 16,
+  });
+}
+
 export function syncMapSources(options?: { preserveViewport?: boolean }) {
   if (!mapReady) {
     return;
   }
 
   setSourceData(APARTMENT_SOURCE_ID, apartmentFeatureCollection());
+  setSourceData(SEARCHED_ADDRESS_SOURCE_ID, searchedAddressFeatureCollection());
   setSourceData(UBAHN_STATION_SOURCE_ID, ubahnStationFeatureCollection());
   setSourceData(UBAHN_SOURCE_ID, ubahnRouteFeatureCollection());
 
@@ -129,7 +146,11 @@ export function syncMapSources(options?: { preserveViewport?: boolean }) {
   applyLayerVisibility(UBAHN_LAYER_ID, state.showUbahnRoutes);
 
   if (!options?.preserveViewport) {
-    fitMapToPayload();
+    if (state.mapAddressSelection) {
+      focusSearchedAddress();
+    } else {
+      fitMapToPayload();
+    }
   }
 
   syncPoiSources();
@@ -175,6 +196,7 @@ function bindMapInteractions() {
 
   for (const layerId of [
     APARTMENT_LAYER_ID,
+    SEARCHED_ADDRESS_LAYER_ID,
     POI_LAYER_ID,
     UBAHN_STATION_LAYER_ID,
     UBAHN_LAYER_ID,
@@ -337,6 +359,10 @@ function addMapSourcesAndLayers() {
     type: "geojson",
     data: EMPTY_FEATURE_COLLECTION,
   });
+  map.addSource(SEARCHED_ADDRESS_SOURCE_ID, {
+    type: "geojson",
+    data: EMPTY_FEATURE_COLLECTION,
+  });
   map.addSource(POI_SOURCE_ID, {
     type: "geojson",
     data: EMPTY_FEATURE_COLLECTION,
@@ -427,6 +453,17 @@ function addMapSourcesAndLayers() {
       "circle-color": "#f06b4f",
       "circle-stroke-color": "#18201f",
       "circle-stroke-width": 3,
+    },
+  });
+  map.addLayer({
+    id: SEARCHED_ADDRESS_LAYER_ID,
+    type: "circle",
+    source: SEARCHED_ADDRESS_SOURCE_ID,
+    paint: {
+      "circle-radius": 11,
+      "circle-color": "#18201f",
+      "circle-stroke-color": "#f06b4f",
+      "circle-stroke-width": 4,
     },
   });
 

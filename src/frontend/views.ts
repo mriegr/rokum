@@ -859,7 +859,7 @@ export function renderMapLegend() {
         </div>
         <div class="empty-state compact">
           <h2>No map focus yet</h2>
-          <p>Add an apartment or select one from the list to see nearby POIs.</p>
+          <p>Search any Munich address on the map, or add an apartment to see nearby POIs and scores.</p>
         </div>
       </div>
     `;
@@ -1051,6 +1051,93 @@ export function renderMapLegend() {
   `;
 }
 
+export function renderMapAddressSearch() {
+  const query = escapeHtml(state.mapAddressQuery);
+  const hasSuggestions = state.mapAddressSuggestions.length > 0;
+  const showDropdown =
+    state.mapAddressSuggestionsOpen &&
+    state.mapAddressQuery.trim().length >= 3 &&
+    !state.mapAddressSelection;
+  const statusMessage =
+    state.mapAddressSearchStatus === "loading"
+      ? "Searching addresses..."
+      : state.mapAddressSearchStatus === "error"
+        ? "Address search is temporarily unavailable."
+        : !hasSuggestions && showDropdown
+          ? "No matching addresses in the Munich area."
+          : "";
+
+  return `
+    <form class="map-address-search" id="map-address-search" role="search">
+      <div class="map-address-input-wrap">
+        <span class="map-address-search-icon" aria-hidden="true"></span>
+        <input
+          id="map-address-input"
+          type="search"
+          value="${query}"
+          placeholder="Search any Munich address"
+          autocomplete="off"
+          spellcheck="false"
+          role="combobox"
+          aria-label="Search an address on the map"
+          aria-autocomplete="list"
+          aria-controls="map-address-suggestions"
+          aria-expanded="${showDropdown}"
+          aria-activedescendant="${
+            state.mapAddressActiveSuggestionIndex >= 0
+              ? `map-address-option-${state.mapAddressActiveSuggestionIndex}`
+              : ""
+          }"
+        />
+        ${
+          state.mapAddressSelection || state.mapAddressQuery
+            ? `<button class="map-address-clear" type="button" data-action="clear-map-address" aria-label="Clear searched address">&times;</button>`
+            : ""
+        }
+      </div>
+      <div
+        id="map-address-suggestions"
+        class="map-address-suggestions ${showDropdown ? "is-open" : ""}"
+        role="listbox"
+      >
+        ${state.mapAddressSuggestions
+          .map(
+            (suggestion, index) => `
+              <button
+                id="map-address-option-${index}"
+                class="map-address-option ${
+                  index === state.mapAddressActiveSuggestionIndex ? "is-active" : ""
+                }"
+                type="button"
+                role="option"
+                aria-selected="${index === state.mapAddressActiveSuggestionIndex}"
+                data-action="select-map-address"
+                data-index="${index}"
+              >
+                <span class="map-address-pin" aria-hidden="true"></span>
+                <span class="map-address-option-copy">
+                  <strong>${escapeHtml(suggestion.label)}</strong>
+                  ${
+                    suggestion.address !== suggestion.label
+                      ? `<small>${escapeHtml(suggestion.address)}</small>`
+                      : ""
+                  }
+                </span>
+              </button>
+            `,
+          )
+          .join("")}
+        ${statusMessage ? `<p class="map-address-status" role="status">${statusMessage}</p>` : ""}
+      </div>
+      ${
+        state.mapAddressSelection
+          ? `<p class="map-address-selection"><span></span>Showing searched location</p>`
+          : ""
+      }
+    </form>
+  `;
+}
+
 export function renderMapView() {
   const disabledState =
     !mapIsAvailable(state.mapConfig)
@@ -1060,10 +1147,35 @@ export function renderMapView() {
       : "";
   return `
     <section class="map-layout">
-      <div id="map-canvas" class="map-canvas">${disabledState}</div>
+      <div class="map-stage">
+        <div id="map-canvas" class="map-canvas">${disabledState}</div>
+        ${
+          mapIsAvailable(state.mapConfig)
+            ? `<div id="map-address-search-region">${renderMapAddressSearch()}</div>`
+            : ""
+        }
+      </div>
       <aside class="map-sidebar"></aside>
     </section>
   `;
+}
+
+export function updateMapAddressSearch(options?: { preserveFocus?: boolean }) {
+  const region = document.querySelector<HTMLElement>("#map-address-search-region");
+  if (!region || state.activeView !== "map") {
+    return;
+  }
+
+  const previousInput = document.querySelector<HTMLInputElement>("#map-address-input");
+  const shouldRestoreFocus = options?.preserveFocus && document.activeElement === previousInput;
+  const selectionStart = previousInput?.selectionStart ?? state.mapAddressQuery.length;
+  region.innerHTML = renderMapAddressSearch();
+
+  if (shouldRestoreFocus) {
+    const nextInput = region.querySelector<HTMLInputElement>("#map-address-input");
+    nextInput?.focus();
+    nextInput?.setSelectionRange(selectionStart, selectionStart);
+  }
 }
 
 export function updateMapSidebar() {

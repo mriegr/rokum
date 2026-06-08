@@ -1,6 +1,6 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { fetchTransitMapOverlay } from "./services";
+import { fetchTransitMapOverlay, searchMapAddresses } from "./services";
 import type { AppConfig } from "../shared/types";
 
 const originalFetch = globalThis.fetch;
@@ -16,7 +16,7 @@ function createConfig(): AppConfig {
     walkingBaseUrl: "https://example.test",
     transitBaseUrl: null,
     transitMode: "heuristic",
-    jawgApiKey: null,
+    jawgApiKey: "test-token",
     jawgStyleId: "jawg-streets",
   };
 }
@@ -24,6 +24,154 @@ function createConfig(): AppConfig {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   mock.restore();
+});
+
+test("searchMapAddresses constrains and normalizes Jawg autocomplete suggestions", async () => {
+  const config = createConfig();
+  let requestedUrl = "";
+
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    requestedUrl = String(input);
+    return Response.json({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [11.57549, 48.13722] },
+          properties: {
+            label: "Marienplatz 1, 80331 München, Deutschland",
+            name: "Marienplatz 1",
+          },
+        },
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [13.405, 52.52] },
+          properties: { label: "Outside Munich", name: "Outside Munich" },
+        },
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: ["invalid", 48.1] },
+          properties: { label: "Invalid coordinates", name: "Invalid coordinates" },
+        },
+      ],
+    });
+  }) as unknown as typeof fetch;
+
+  const suggestions = await searchMapAddresses(config, "  Marienplatz  ");
+  const url = new URL(requestedUrl);
+
+  expect(url.origin).toBe("https://api.jawg.io");
+  expect(url.pathname).toBe("/places/v1/autocomplete");
+  expect(url.searchParams.get("text")).toBe("Marienplatz");
+  expect(url.searchParams.get("access-token")).toBe("test-token");
+  expect(url.searchParams.get("boundary.rect.min_lon")).toBe("11.05");
+  expect(url.searchParams.get("boundary.rect.min_lat")).toBe("47.95");
+  expect(url.searchParams.get("boundary.rect.max_lon")).toBe("12.05");
+  expect(url.searchParams.get("boundary.rect.max_lat")).toBe("48.42");
+  expect(url.searchParams.get("layers")).toBe("address,street,venue");
+  expect(url.searchParams.get("size")).toBe("5");
+  expect(suggestions).toEqual([
+    {
+      displayLabel: "Marienplatz 1",
+      address: "Marienplatz 1, 80331 München, Deutschland",
+      latitude: 48.13722,
+      longitude: 11.57549,
+    },
+  ]);
+});
+
+test("searchMapAddresses caches and deduplicates identical in-flight requests", async () => {
+  const config = createConfig();
+  let requestCount = 0;
+  let resolveRequest!: (response: Response) => void;
+
+  globalThis.fetch = mock(() => {
+    requestCount += 1;
+    return new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+  }) as unknown as typeof fetch;
+
+  const first = searchMapAddresses(config, "Leopoldstrasse");
+  const second = searchMapAddresses(config, "  leopoldstrasse  ");
+
+  expect(requestCount).toBe(1);
+  resolveRequest(Response.json({
+    features: [{
+      geometry: { type: "Point", coordinates: [11.586, 48.16] },
+      properties: { label: "Leopoldstraße 1, München", name: "Leopoldstraße 1" },
+    }],
+  }));
+
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+  const cachedResult = await searchMapAddresses(config, "LEOPOLDSTRASSE");
+
+  expect(firstResult).toEqual(secondResult);
+  expect(cachedResult).toEqual(firstResult);
+  expect(requestCount).toBe(1);
+});
+
+test("searchMapAddresses falls back to stale cached suggestions on upstream failure", async () => {
+  const config = createConfig();
+  let now = 1_000;
+  const dateNow = Date.now;
+  Date.now = () => now;
+  let requestCount = 0;
+
+  globalThis.fetch = mock(async () => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      return Response.json({
+        features: [{
+          geometry: { type: "Point", coordinates: [11.577, 48.142] },
+          properties: { label: "Odeonsplatz, München", name: "Odeonsplatz" },
+        }],
+      });
+    }
+    return new Response("unavailable", { status: 503 });
+  }) as unknown as typeof fetch;
+
+  try {
+    const fresh = await searchMapAddresses(config, "Odeonsplatz");
+    now += 6 * 60 * 1000;
+    const stale = await searchMapAddresses(config, "Odeonsplatz");
+
+    expect(stale).toEqual(fresh);
+    expect(requestCount).toBe(2);
+  } finally {
+    Date.now = dateNow;
+  }
+});
+
+test("searchMapAddresses does not use autocomplete cache after the stale window", async () => {
+  const config = createConfig();
+  let now = 2_000;
+  const dateNow = Date.now;
+  Date.now = () => now;
+  let requestCount = 0;
+  const query = `Gärtnerplatz ${randomUUID()}`;
+
+  globalThis.fetch = mock(async () => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      return Response.json({
+        features: [{
+          geometry: { type: "Point", coordinates: [11.576, 48.132] },
+          properties: { label: "Gärtnerplatz, München", name: "Gärtnerplatz" },
+        }],
+      });
+    }
+    return new Response("unavailable", { status: 503 });
+  }) as unknown as typeof fetch;
+
+  try {
+    await searchMapAddresses(config, query);
+    now += 25 * 60 * 60 * 1000;
+    await expect(searchMapAddresses(config, query)).rejects.toThrow("Remote request failed: 503");
+    expect(requestCount).toBe(2);
+  } finally {
+    Date.now = dateNow;
+  }
 });
 
 test("fetchTransitMapOverlay normalizes ubahn route colors for map rendering", async () => {

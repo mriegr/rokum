@@ -15,6 +15,7 @@ import {
   getSettings,
   initApp,
   refreshApartmentScores,
+  searchMapAddressSuggestions,
   serveMapGlyph,
   serveMapSource,
   serveMapSprite,
@@ -87,6 +88,10 @@ Bun.serve({
     }
 
     try {
+      if (pathname === "/api/map/address-search" && method === "GET") {
+        return json(await searchMapAddressSuggestions(app, url.searchParams.get("q") ?? ""));
+      }
+
       if (pathname === "/api/map/style.json" && method === "GET") {
         return await serveMapStyle(app, request.url);
       }

@@ -41,6 +41,30 @@ export function apartmentFeatureCollection() {
   } satisfies FeatureCollection;
 }
 
+export function searchedAddressFeatureCollection() {
+  const selection = state.mapAddressSelection;
+  if (!selection) {
+    return emptyFeatureCollection();
+  }
+
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        id: "searched-address",
+        geometry: {
+          type: "Point",
+          coordinates: [selection.longitude, selection.latitude],
+        },
+        properties: {
+          popupHtml: popupHtml(selection.label, [selection.address, "Searched address"]),
+        },
+      },
+    ],
+  } satisfies FeatureCollection;
+}
+
 export function nearbyPoiFeatureCollection() {
   return {
     type: "FeatureCollection",

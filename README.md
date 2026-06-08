@@ -16,7 +16,7 @@ Open `http://localhost:3000`.
 - Save apartment listings with address, area, rooms, rent, floor, description, and photos
 - Compute total score from price per square meter, room count, walking convenience, and public-transport travel time
 - Track reusable custom places such as work and include them in apartment scoring
-- Compare listings in a list view and inspect one apartment at a time in a map view
+- Compare listings in a list view, inspect apartments on the map, or search any Munich address with autocomplete
 
 ## Environment
 
@@ -48,7 +48,7 @@ BASIC_AUTH_HASH=replace-with-bcrypt-hash
 
 `TRANSIT_MODE=otp1` and `TRANSIT_BASE_URL` can be used if you have an OpenTripPlanner-compatible `/plan` endpoint. Otherwise the app uses a transit-time heuristic based on distance and U-Bahn access.
 
-Set `JAWG_API` to enable the vector map view. If it is missing, Rokum keeps the map tab visible but shows a disabled-state message instead of loading the basemap.
+Set `JAWG_API` to enable the vector map view and its Jawg Places address autocomplete. If it is missing, Rokum keeps the map tab visible but shows a disabled-state message instead of loading map services.
 
 ## Production deploy
 

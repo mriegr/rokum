@@ -5,6 +5,7 @@ let ubahnRouteFeatureCollection: (typeof import("./mapFeatures"))["ubahnRouteFea
 let combinedPoiFeatureCollection: (typeof import("./mapFeatures"))["combinedPoiFeatureCollection"];
 let nearbyPoiFeatureCollection: (typeof import("./mapFeatures"))["nearbyPoiFeatureCollection"];
 let apartmentFeatureCollection: (typeof import("./mapFeatures"))["apartmentFeatureCollection"];
+let searchedAddressFeatureCollection: (typeof import("./mapFeatures"))["searchedAddressFeatureCollection"];
 let customPoiFeatureCollection: (typeof import("./mapFeatures"))["customPoiFeatureCollection"];
 let spiderfyPoiFeatureCollection: (typeof import("./mapFeatures"))["spiderfyPoiFeatureCollection"];
 let state: any;
@@ -21,6 +22,7 @@ beforeAll(async () => {
   combinedPoiFeatureCollection = mapFeatures.combinedPoiFeatureCollection;
   nearbyPoiFeatureCollection = mapFeatures.nearbyPoiFeatureCollection;
   apartmentFeatureCollection = mapFeatures.apartmentFeatureCollection;
+  searchedAddressFeatureCollection = mapFeatures.searchedAddressFeatureCollection;
   customPoiFeatureCollection = mapFeatures.customPoiFeatureCollection;
   spiderfyPoiFeatureCollection = mapFeatures.spiderfyPoiFeatureCollection;
   state = stateMod.state;
@@ -152,6 +154,22 @@ test("apartmentFeatureCollection returns empty when no apartment", () => {
   state.mapPayload = null;
   const result = apartmentFeatureCollection();
   expect(result.features).toHaveLength(0);
+});
+
+test("searchedAddressFeatureCollection renders the selected autocomplete result", () => {
+  state.mapAddressSelection = {
+    label: "Marienplatz 1",
+    address: "Marienplatz 1, 80331 Munich",
+    latitude: 48.1374,
+    longitude: 11.5755,
+  };
+
+  const result = searchedAddressFeatureCollection();
+
+  expect(result.features).toHaveLength(1);
+  expect(result.features[0]?.id).toBe("searched-address");
+  expect(result.features[0]?.geometry.coordinates).toEqual([11.5755, 48.1374]);
+  expect(result.features[0]?.properties?.popupHtml).toContain("Marienplatz 1");
 });
 
 test("apartmentFeatureCollection returns empty when apartment has null coordinates", () => {

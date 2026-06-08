@@ -10,7 +10,7 @@ import type {
   StandardPoiCategory,
   WeightSettings,
 } from "../shared/types";
-import type { PanelView, SortMode } from "./state";
+import type { MapAddressSuggestion, PanelView, SortMode } from "./state";
 import {
   isCategoryExpanded,
   MANAGED_POI_CATEGORY_ORDER,
@@ -37,10 +37,12 @@ import {
   renderCategoriesView,
   renderPoisView,
   renderTopbar,
+  updateMapAddressSearch,
   updateMapSidebar,
 } from "./views";
 import {
   destroyMap,
+  focusSearchedAddress,
   renderMap,
 } from "./map";
 import {
@@ -50,6 +52,15 @@ import {
 } from "./poiFilters";
 
 let poiSearchUpdateTimer: number | null = null;
+let mapAddressSearchTimer: number | null = null;
+let mapAddressSearchSequence = 0;
+
+type MapAddressSearchResponse = {
+  displayLabel: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+};
 
 export function render() {
   if (state.activeView !== "map" && mapIsAvailable(state.mapConfig)) {
@@ -74,6 +85,7 @@ export function render() {
   bindEvents();
 
   if (state.activeView === "map") {
+    bindMapAddressSearchEvents();
     updateMapSidebar();
     const sidebar = document.querySelector<HTMLElement>(".map-sidebar");
     if (sidebar) bindMapSidebarEvents(sidebar);
@@ -438,6 +450,191 @@ export async function loadMapPayload(apartmentId: number) {
 
   render();
   queueMicrotask(() => renderMap());
+}
+
+async function searchMapAddresses(query: string, sequence: number) {
+  try {
+    const results = await requestJson<MapAddressSearchResponse[]>(
+      `/api/map/address-search?q=${encodeURIComponent(query)}`,
+    );
+    const currentQuery = state.mapAddressQuery.trim().replace(/\s+/g, " ");
+    if (sequence !== mapAddressSearchSequence || currentQuery !== query) {
+      return;
+    }
+
+    state.mapAddressSuggestions = results.map(
+      (result): MapAddressSuggestion => ({
+        label: result.displayLabel || result.address,
+        address: result.address,
+        latitude: result.latitude,
+        longitude: result.longitude,
+      }),
+    );
+    state.mapAddressSuggestionsOpen = true;
+    state.mapAddressSearchStatus = "idle";
+    state.mapAddressActiveSuggestionIndex = results.length ? 0 : -1;
+    updateMapAddressSearch({ preserveFocus: true });
+  } catch {
+    if (sequence !== mapAddressSearchSequence) {
+      return;
+    }
+    state.mapAddressSuggestions = [];
+    state.mapAddressSuggestionsOpen = true;
+    state.mapAddressSearchStatus = "error";
+    state.mapAddressActiveSuggestionIndex = -1;
+    updateMapAddressSearch({ preserveFocus: true });
+  }
+}
+
+function scheduleMapAddressSearch() {
+  if (mapAddressSearchTimer !== null) {
+    window.clearTimeout(mapAddressSearchTimer);
+    mapAddressSearchTimer = null;
+  }
+
+  const query = state.mapAddressQuery.trim().replace(/\s+/g, " ");
+  const sequence = ++mapAddressSearchSequence;
+  if (query.length < 3) {
+    state.mapAddressSuggestions = [];
+    state.mapAddressSuggestionsOpen = false;
+    state.mapAddressSearchStatus = "idle";
+    state.mapAddressActiveSuggestionIndex = -1;
+    updateMapAddressSearch({ preserveFocus: true });
+    return;
+  }
+
+  state.mapAddressSearchStatus = "loading";
+  state.mapAddressSuggestions = [];
+  state.mapAddressSuggestionsOpen = true;
+  state.mapAddressActiveSuggestionIndex = -1;
+  updateMapAddressSearch({ preserveFocus: true });
+  mapAddressSearchTimer = window.setTimeout(() => {
+    mapAddressSearchTimer = null;
+    void searchMapAddresses(query, sequence);
+  }, 250);
+}
+
+function selectMapAddress(index: number) {
+  const suggestion = state.mapAddressSuggestions[index];
+  if (!suggestion) {
+    return;
+  }
+
+  mapAddressSearchSequence += 1;
+  state.mapAddressSelection = suggestion;
+  state.mapAddressQuery = suggestion.address;
+  state.mapAddressSuggestions = [];
+  state.mapAddressSuggestionsOpen = false;
+  state.mapAddressSearchStatus = "idle";
+  state.mapAddressActiveSuggestionIndex = -1;
+  updateMapAddressSearch();
+  renderMap({ preserveViewport: true });
+  focusSearchedAddress();
+  document.querySelector<HTMLInputElement>("#map-address-input")?.focus();
+}
+
+function clearMapAddressSearch() {
+  mapAddressSearchSequence += 1;
+  if (mapAddressSearchTimer !== null) {
+    window.clearTimeout(mapAddressSearchTimer);
+    mapAddressSearchTimer = null;
+  }
+  state.mapAddressQuery = "";
+  state.mapAddressSuggestions = [];
+  state.mapAddressSuggestionsOpen = false;
+  state.mapAddressSearchStatus = "idle";
+  state.mapAddressActiveSuggestionIndex = -1;
+  state.mapAddressSelection = null;
+  updateMapAddressSearch();
+  renderMap({ preserveViewport: true });
+  document.querySelector<HTMLInputElement>("#map-address-input")?.focus();
+}
+
+function bindMapAddressSearchEvents() {
+  const mapLayout = document.querySelector<HTMLElement>(".map-layout");
+  if (!mapLayout) {
+    return;
+  }
+
+  mapLayout.addEventListener("input", (event) => {
+    const input = event.target as HTMLInputElement | null;
+    if (input?.id !== "map-address-input") {
+      return;
+    }
+
+    const hadSelection = state.mapAddressSelection !== null;
+    state.mapAddressQuery = input.value;
+    state.mapAddressSelection = null;
+    if (hadSelection) {
+      renderMap({ preserveViewport: true });
+    }
+    scheduleMapAddressSearch();
+  });
+
+  mapLayout.addEventListener("keydown", (event) => {
+    const input = event.target as HTMLInputElement | null;
+    if (input?.id !== "map-address-input") {
+      return;
+    }
+
+    if (event.key === "ArrowDown" && state.mapAddressSuggestions.length) {
+      event.preventDefault();
+      state.mapAddressActiveSuggestionIndex =
+        (state.mapAddressActiveSuggestionIndex + 1) % state.mapAddressSuggestions.length;
+      updateMapAddressSearch({ preserveFocus: true });
+      return;
+    }
+
+    if (event.key === "ArrowUp" && state.mapAddressSuggestions.length) {
+      event.preventDefault();
+      state.mapAddressActiveSuggestionIndex =
+        (state.mapAddressActiveSuggestionIndex - 1 + state.mapAddressSuggestions.length) %
+        state.mapAddressSuggestions.length;
+      updateMapAddressSearch({ preserveFocus: true });
+      return;
+    }
+
+    if (event.key === "Enter" && state.mapAddressSuggestions.length) {
+      event.preventDefault();
+      selectMapAddress(Math.max(0, state.mapAddressActiveSuggestionIndex));
+      return;
+    }
+
+    if (event.key === "Escape") {
+      mapAddressSearchSequence += 1;
+      if (mapAddressSearchTimer !== null) {
+        window.clearTimeout(mapAddressSearchTimer);
+        mapAddressSearchTimer = null;
+      }
+      state.mapAddressSuggestions = [];
+      state.mapAddressSuggestionsOpen = false;
+      state.mapAddressSearchStatus = "idle";
+      state.mapAddressActiveSuggestionIndex = -1;
+      updateMapAddressSearch({ preserveFocus: true });
+    }
+  });
+
+  mapLayout.addEventListener("submit", (event) => {
+    if ((event.target as HTMLFormElement | null)?.id === "map-address-search") {
+      event.preventDefault();
+    }
+  });
+
+  mapLayout.addEventListener("click", (event) => {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-action]");
+    if (!target) {
+      return;
+    }
+
+    if (target.dataset.action === "select-map-address") {
+      selectMapAddress(Number(target.dataset.index));
+      return;
+    }
+
+    if (target.dataset.action === "clear-map-address") {
+      clearMapAddressSearch();
+    }
+  });
 }
 
 export function updatePoiRegions(options?: { controls?: boolean }) {

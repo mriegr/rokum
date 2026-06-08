@@ -52,6 +52,7 @@ import {
   getActiveCustomPois,
   routeTransit,
   routeWalking,
+  searchMapAddresses,
   seedSportStudioIcons,
   seedSportStudios,
   storeUploadedPhotos,
@@ -758,6 +759,15 @@ export async function serveMapSource(app: AppState, assetId: string) {
   }
 
   return fetchMapBinary(app, entry.url, `source:${assetId}`);
+}
+
+export async function searchMapAddressSuggestions(app: AppState, query: string) {
+  const normalizedQuery = query.trim().replace(/\s+/g, " ");
+  if (normalizedQuery.length < 3) {
+    throw badRequest("Address search query must be at least 3 characters");
+  }
+
+  return searchMapAddresses(app.config, normalizedQuery);
 }
 
 export async function initApp(): Promise<AppState> {

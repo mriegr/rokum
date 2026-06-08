@@ -9,6 +9,7 @@ import {
   serveUploadFile,
   serveMapStyle,
   serveMapTile,
+  searchMapAddressSuggestions,
   updatePoiCategoryLabel,
 } from "./server";
 import type { AppConfig } from "../shared/types";
@@ -154,6 +155,36 @@ test("style proxy returns 503 when the map API is not configured", async () => {
     "http://localhost:3000/api/map/style.json",
   );
   expect(response.status).toBe(503);
+});
+
+test("map address search rejects queries shorter than three characters", async () => {
+  await expect(searchMapAddressSuggestions(createApp(), "  ab  ")).rejects.toMatchObject({
+    status: 400,
+    message: "Address search query must be at least 3 characters",
+  });
+});
+
+test("map address search returns normalized service suggestions", async () => {
+  globalThis.fetch = mock(async () =>
+    Response.json({
+      features: [{
+        geometry: { type: "Point", coordinates: [11.5658, 48.1391] },
+        properties: {
+          label: "Karlsplatz 1, 80335 München, Deutschland",
+          name: "Karlsplatz 1",
+        },
+      }],
+    }),
+  ) as unknown as typeof fetch;
+
+  await expect(searchMapAddressSuggestions(createApp(), " Karlsplatz ")).resolves.toEqual([
+    {
+      displayLabel: "Karlsplatz 1",
+      address: "Karlsplatz 1, 80335 München, Deutschland",
+      latitude: 48.1391,
+      longitude: 11.5658,
+    },
+  ]);
 });
 
 test("serveUpload only serves files inside the uploads directory", async () => {

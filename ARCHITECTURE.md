@@ -205,6 +205,9 @@ Important consequence: the scoring shape is intentionally stable even when remot
 - Provider: Nominatim-compatible `/search`
 - Used for apartment addresses and custom POIs
 - City is appended to the query
+- `GET /api/map/address-search?q=...` uses Jawg Places autocomplete without exposing the provider URL or token to the browser
+- autocomplete is bounded to the Munich greater area, limited to five results, cached for five minutes, capped at 200 entries, and deduplicated while a matching request is in flight
+- expired autocomplete entries remain available as a stale fallback for up to 24 hours when Jawg Places is unavailable
 
 ### Standard POI fetching
 
@@ -286,6 +289,8 @@ The map has special handling:
 - MapLibre instance should not be recreated for filter-only changes
 - viewport should be preserved for display/filter toggles
 - refit should happen only when focused apartment or underlying payload changes
+- selecting an autocomplete result updates a dedicated searched-address source and recenters the existing map without reloading `/api/apartments/:id/map`
+- autocomplete requests are debounced and queries shorter than three characters stay client-side
 - map bounds should stay within the Munich greater-area limits
 - when `JAWG_API` is missing, the map view renders a disabled state and skips map-resource requests
 
@@ -396,6 +401,7 @@ For frontend map and POI work, browser verification matters because several key 
 - no unnecessary `/api/apartments/:id/map` reloads
 - no unnecessary tile bursts
 - no API traffic while typing into POI search
+- no address-autocomplete API traffic for queries shorter than three characters
 - basemap requests must stay on the local proxy routes
 
 ## Documentation upkeep

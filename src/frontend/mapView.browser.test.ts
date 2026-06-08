@@ -13,6 +13,7 @@ import {
 import {
   getApartmentMapData,
   getBootstrapPayload,
+  searchMapAddressSuggestions,
   serveMapStyle,
   serveMapTile,
   serveMapGlyph,
@@ -87,6 +88,18 @@ function installFetchMock() {
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
+    if (url.startsWith("https://api.jawg.io/places/v1/autocomplete")) {
+      return Response.json({
+        features: [{
+          geometry: { type: "Point", coordinates: [11.5755, 48.1374] },
+          properties: {
+            label: "Marienplatz 1, 80331 München, Deutschland",
+            name: "Marienplatz 1",
+          },
+        }],
+      });
+    }
+
     if (url.startsWith("https://api.jawg.io/styles/")) {
       return Response.json({
         version: 8,
@@ -141,6 +154,12 @@ beforeAll(async () => {
 
           if (pathname === "/api/map/style.json") {
             return serveMapStyle(app as any, request.url);
+          }
+
+          if (pathname === "/api/map/address-search") {
+            return Response.json(
+              await searchMapAddressSuggestions(app as any, url.searchParams.get("q") ?? ""),
+            );
           }
 
           const apartmentMapMatch = pathname.match(/^\/api\/apartments\/(\d+)\/map$/);
@@ -255,6 +274,44 @@ browserTest("map view renders without browser console errors", async () => {
     expect(consoleErrors).toEqual([]);
     expect(requestUrls.some((value) => value.includes("/api/map/style.json"))).toBe(true);
     expect(requestUrls.some((value) => value.includes("/api/apartments/1/map"))).toBe(true);
+
+    const addressInput = page.locator("#map-address-input");
+    await addressInput.fill("Ma");
+    await page.waitForTimeout(350);
+    expect(requestUrls.filter((value) => value.includes("/api/map/address-search"))).toHaveLength(0);
+
+    await addressInput.fill("Marienplatz");
+    const suggestion = page.getByRole("option", { name: /Marienplatz 1/ });
+    await suggestion.waitFor();
+    expect(requestUrls.filter((value) => value.includes("/api/map/address-search"))).toHaveLength(1);
+
+    await addressInput.press("Escape");
+    expect(await page.locator(".map-address-suggestions").isVisible()).toBe(false);
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("map-address-input");
+
+    await addressInput.fill("Marienplatz 1");
+    await page.getByRole("option", { name: /Marienplatz 1/ }).waitFor();
+
+    const apartmentMapRequestsBeforeSelection = requestUrls.filter((value) =>
+      value.includes("/api/apartments/1/map"),
+    ).length;
+    await addressInput.press("ArrowDown");
+    await addressInput.press("Enter");
+    await page.locator(".map-address-selection").waitFor();
+    expect(await page.locator(".map-address-selection").textContent()).toContain(
+      "Showing searched location",
+    );
+    expect(await page.locator("#map-address-input").inputValue()).toBe(
+      "Marienplatz 1, 80331 München, Deutschland",
+    );
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("map-address-input");
+    expect(
+      requestUrls.filter((value) => value.includes("/api/apartments/1/map")).length,
+    ).toBe(apartmentMapRequestsBeforeSelection);
+
+    await page.getByRole("button", { name: "Clear searched address" }).click();
+    expect(await page.locator("#map-address-input").inputValue()).toBe("");
+    expect(await page.locator(".map-address-selection").count()).toBe(0);
   } finally {
     await browser.close();
   }

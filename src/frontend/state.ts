@@ -26,6 +26,13 @@ export type EditorMode = "create" | "edit";
 export type PanelView = "apartment" | "custom-poi" | "settings";
 export type SortMode = "score" | "warmmiete" | "pricePerSqm" | "rooms" | "newest";
 export type MainView = "list" | "map" | "pois" | "categories";
+export type MapAddressSearchStatus = "idle" | "loading" | "error";
+export type MapAddressSuggestion = {
+  label: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+};
 
 export type AppState = BootstrapPayload & {
   activeView: MainView;
@@ -36,6 +43,12 @@ export type AppState = BootstrapPayload & {
   editingCustomPoiId: number | null;
   sortMode: SortMode;
   mapPayload: MapPayload | null;
+  mapAddressQuery: string;
+  mapAddressSuggestions: MapAddressSuggestion[];
+  mapAddressSuggestionsOpen: boolean;
+  mapAddressSearchStatus: MapAddressSearchStatus;
+  mapAddressActiveSuggestionIndex: number;
+  mapAddressSelection: MapAddressSuggestion | null;
   visiblePoiCategories: Record<StandardPoiCategory, boolean>;
   showPoiList: boolean;
   selectedSportTags: string[];
@@ -109,6 +122,12 @@ export const state: AppState = {
   editingCustomPoiId: null,
   sortMode: "score",
   mapPayload: null,
+  mapAddressQuery: "",
+  mapAddressSuggestions: [],
+  mapAddressSuggestionsOpen: false,
+  mapAddressSearchStatus: "idle",
+  mapAddressActiveSuggestionIndex: -1,
+  mapAddressSelection: null,
   visiblePoiCategories: {
     supermarket: true,
     sport_studio: true,
@@ -146,12 +165,14 @@ export const POI_SOURCE_ID = "nearby-pois";
 export const POI_SPIDER_LEG_SOURCE_ID = "nearby-poi-spider-legs";
 export const UBAHN_STATION_SOURCE_ID = "ubahn-stations";
 export const UBAHN_SOURCE_ID = "ubahn-routes";
+export const SEARCHED_ADDRESS_SOURCE_ID = "searched-address";
 
 export const APARTMENT_LAYER_ID = "apartment-layer";
 export const POI_SPIDER_LEG_LAYER_ID = "poi-spider-leg-layer";
 export const POI_LAYER_ID = "poi-layer";
 export const UBAHN_STATION_LAYER_ID = "ubahn-station-layer";
 export const UBAHN_LAYER_ID = "ubahn-layer";
+export const SEARCHED_ADDRESS_LAYER_ID = "searched-address-layer";
 
 export const POI_LABELS: Record<StandardPoiCategory, string> = {
   supermarket: "Supermarkets",
