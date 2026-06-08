@@ -8,6 +8,7 @@ COPY urbansportsclub-venues-with-addresses.json ./urbansportsclub-venues-with-ad
 
 RUN bun install --frozen-lockfile
 
+ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATA_DIR=/data
 

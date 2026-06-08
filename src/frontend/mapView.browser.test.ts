@@ -118,85 +118,98 @@ beforeAll(async () => {
 
   installFetchMock();
   const app = createApp();
-  const port = 43150 + Math.floor(Math.random() * 1000);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const port = 20000 + Math.floor(Math.random() * 40000);
+    try {
+      server = Bun.serve({
+        port,
+        routes: {
+          "/": appShell,
+          "/map": appShell,
+        },
+        async fetch(request) {
+          const url = new URL(request.url);
+          const { pathname } = url;
 
-  server = Bun.serve({
-    port,
-    routes: {
-      "/": appShell,
-      "/map": appShell,
-    },
-    async fetch(request) {
-      const url = new URL(request.url);
-      const { pathname } = url;
+          if (pathname === "/api/bootstrap") {
+            return Response.json(getBootstrapPayload(app as any));
+          }
 
-      if (pathname === "/api/bootstrap") {
-        return Response.json(getBootstrapPayload(app as any));
+          if (pathname === "/api/poi-icons") {
+            return Response.json({ icons: [] });
+          }
+
+          if (pathname === "/api/map/style.json") {
+            return serveMapStyle(app as any, request.url);
+          }
+
+          const apartmentMapMatch = pathname.match(/^\/api\/apartments\/(\d+)\/map$/);
+          if (apartmentMapMatch) {
+            const payload = await getApartmentMapData(app as any, Number(apartmentMapMatch[1]));
+            return Response.json({
+              ...payload,
+              ubahnRoutes: [
+                {
+                  id: "route-u2",
+                  name: "U2",
+                  ref: "U2",
+                  color: "0056b8",
+                  paths: [[
+                    { latitude: 48.1325, longitude: 11.5615 },
+                    { latitude: 48.1375, longitude: 11.5765 },
+                    { latitude: 48.1445, longitude: 11.5885 },
+                  ]],
+                },
+              ],
+            });
+          }
+
+          const mapTileMatch = pathname.match(/^\/api\/map\/tiles\/([a-f0-9]+)\/(\d+)\/(\d+)\/(\d+)\.pbf$/);
+          if (mapTileMatch) {
+            const [, assetId, z, x, y] = mapTileMatch;
+            return serveMapTile(app as any, assetId!, z!, x!, y!);
+          }
+
+          const mapGlyphMatch = pathname.match(
+            /^\/api\/map\/glyphs\/([a-f0-9]+)\/([^/]+)\/(\d+-\d+)\.pbf$/,
+          );
+          if (mapGlyphMatch) {
+            const [, assetId, fontstack, range] = mapGlyphMatch;
+            return serveMapGlyph(app as any, assetId!, decodeURIComponent(fontstack!), range!);
+          }
+
+          const mapSpriteMatch = pathname.match(
+            /^\/api\/map\/sprites\/([a-f0-9]+)(\.json|\.png|@2x\.json|@2x\.png)$/,
+          );
+          if (mapSpriteMatch) {
+            const [, assetId, suffix] = mapSpriteMatch;
+            return serveMapSprite(
+              app as any,
+              assetId!,
+              suffix as ".json" | ".png" | "@2x.json" | "@2x.png",
+            );
+          }
+
+          const mapSourceMatch = pathname.match(/^\/api\/map\/sources\/([a-f0-9]+)\.json$/);
+          if (mapSourceMatch) {
+            return serveMapSource(app as any, mapSourceMatch[1]!);
+          }
+
+          return new Response("Not found", { status: 404 });
+        },
+      });
+      break;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && String((error as { code?: string }).code) === "EADDRINUSE") {
+        continue;
       }
+      throw error;
+    }
+  }
 
-      if (pathname === "/api/poi-icons") {
-        return Response.json({ icons: [] });
-      }
-
-      if (pathname === "/api/map/style.json") {
-        return serveMapStyle(app as any, request.url);
-      }
-
-      const apartmentMapMatch = pathname.match(/^\/api\/apartments\/(\d+)\/map$/);
-      if (apartmentMapMatch) {
-        const payload = await getApartmentMapData(app as any, Number(apartmentMapMatch[1]));
-        return Response.json({
-          ...payload,
-          ubahnRoutes: [
-            {
-              id: "route-u2",
-              name: "U2",
-              ref: "U2",
-              color: "0056b8",
-              paths: [[
-                { latitude: 48.1325, longitude: 11.5615 },
-                { latitude: 48.1375, longitude: 11.5765 },
-                { latitude: 48.1445, longitude: 11.5885 },
-              ]],
-            },
-          ],
-        });
-      }
-
-      const mapTileMatch = pathname.match(/^\/api\/map\/tiles\/([a-f0-9]+)\/(\d+)\/(\d+)\/(\d+)\.pbf$/);
-      if (mapTileMatch) {
-        const [, assetId, z, x, y] = mapTileMatch;
-        return serveMapTile(app as any, assetId!, z!, x!, y!);
-      }
-
-      const mapGlyphMatch = pathname.match(
-        /^\/api\/map\/glyphs\/([a-f0-9]+)\/([^/]+)\/(\d+-\d+)\.pbf$/,
-      );
-      if (mapGlyphMatch) {
-        const [, assetId, fontstack, range] = mapGlyphMatch;
-        return serveMapGlyph(app as any, assetId!, decodeURIComponent(fontstack!), range!);
-      }
-
-      const mapSpriteMatch = pathname.match(
-        /^\/api\/map\/sprites\/([a-f0-9]+)(\.json|\.png|@2x\.json|@2x\.png)$/,
-      );
-      if (mapSpriteMatch) {
-        const [, assetId, suffix] = mapSpriteMatch;
-        return serveMapSprite(
-          app as any,
-          assetId!,
-          suffix as ".json" | ".png" | "@2x.json" | "@2x.png",
-        );
-      }
-
-      const mapSourceMatch = pathname.match(/^\/api\/map\/sources\/([a-f0-9]+)\.json$/);
-      if (mapSourceMatch) {
-        return serveMapSource(app as any, mapSourceMatch[1]!);
-      }
-
-      return new Response("Not found", { status: 404 });
-    },
-  });
+  if (!server) {
+    throw new Error("Could not start browser test server");
+  }
 
   baseUrl = `http://127.0.0.1:${server.port}`;
 });

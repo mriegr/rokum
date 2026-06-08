@@ -1,4 +1,5 @@
 import appShell from "./src/frontend/index.html";
+import { HttpError } from "./src/backend/httpErrors";
 import {
   createApartment,
   createCustomPoi,
@@ -29,6 +30,7 @@ import {
 } from "./src/backend/server";
 
 const app = await initApp();
+const isProduction = process.env.NODE_ENV === "production";
 
 function json(data: unknown, status = 200) {
   return Response.json(data, { status });
@@ -55,14 +57,26 @@ Bun.serve({
     "/pois": appShell,
     "/categories": appShell,
   },
-  development: {
-    hmr: true,
-    console: true,
-  },
+  ...(isProduction
+    ? {}
+    : {
+        development: {
+          hmr: true,
+          console: true,
+        },
+      }),
   async fetch(request) {
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method.toUpperCase();
+
+    if (pathname === "/healthz" && method === "GET") {
+      return new Response("ok", {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+        },
+      });
+    }
 
     if (pathname.startsWith("/uploads/")) {
       return app.serveUpload(pathname);
@@ -248,10 +262,12 @@ Bun.serve({
         }
       }
     } catch (error) {
-      console.error(error);
-      const message =
-        error instanceof Error ? error.message : "Unexpected application error";
-      return json({ error: message }, 500);
+      console.error(`[${method} ${pathname}]`, error);
+      if (error instanceof HttpError) {
+        return json({ error: error.message }, error.status);
+      }
+
+      return json({ error: "Internal server error" }, 500);
     }
 
     return notFound();

@@ -1,11 +1,12 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createDatabase } from "./db";
 import {
   getBootstrapPayload,
   getPoiCategoryManagementPayload,
+  serveUploadFile,
   serveMapStyle,
   serveMapTile,
   updatePoiCategoryLabel,
@@ -153,6 +154,21 @@ test("style proxy returns 503 when the map API is not configured", async () => {
     "http://localhost:3000/api/map/style.json",
   );
   expect(response.status).toBe(503);
+});
+
+test("serveUpload only serves files inside the uploads directory", async () => {
+  const config = createAppConfig();
+  databasePaths.push(config.databasePath);
+  mkdirSync(config.uploadDirectory, { recursive: true });
+  writeFileSync(join(config.uploadDirectory, "hello.txt"), "hello");
+  writeFileSync(join(config.uploadDirectory, "outside.txt"), "outside");
+
+  const okResponse = serveUploadFile(config, "/uploads/hello.txt");
+  expect(okResponse.status).toBe(200);
+  expect(await okResponse.text()).toBe("hello");
+
+  const blockedResponse = serveUploadFile(config, "/uploads/../outside.txt");
+  expect(blockedResponse.status).toBe(404);
 });
 
 test("bootstrap includes stored category label overrides", () => {

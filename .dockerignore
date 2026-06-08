@@ -1,4 +1,11 @@
 node_modules
 data
+.git
+.github
 .playwright-mcp
-*.log
+coverage
+dist
+out
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

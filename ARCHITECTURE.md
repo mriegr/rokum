@@ -245,6 +245,21 @@ Important consequence: `sport_studio` is special. It is not fetched from Overpas
 
 Important consequence: browser code must never use direct third-party tile URLs.
 
+## Production topology
+
+Production runs as a Docker Compose stack:
+
+- `app`: Bun process serving the UI, JSON API, uploads, and map proxy
+- `caddy`: public entrypoint for HTTPS and HTTP basic auth
+
+Important consequence: the browser never talks directly to the Bun process. The reverse proxy protects the shell, `/api/...`, uploads, and map endpoints together.
+
+Operational notes:
+
+- `healthz` is the liveness endpoint for the stack
+- `scripts/backup-db.ts` writes a consistent SQLite snapshot with `VACUUM INTO`
+- GitHub Actions deploys to the VPS over SSH, updates `.env`, and runs `docker compose -f docker-compose.prod.yml up -d --build`
+
 ## Frontend structure
 
 The frontend is split across several modules under `src/frontend/`, not a single framework like React/Vue.

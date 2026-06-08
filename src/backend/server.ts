@@ -31,6 +31,7 @@ import {
   updateCustomPoiCoordinates,
   updateCustomPoiRecord,
 } from "./db";
+import { badRequest, notFound } from "./httpErrors";
 import { loadConfig } from "../shared/config";
 import { MUNICH_CITY_CENTER, MUNICH_GREATER_AREA_BOUNDS } from "../shared/munich";
 import {
@@ -60,6 +61,7 @@ import type {
   ApartmentInput,
   ApartmentScoreSnapshot,
   BootstrapPayload,
+  AppConfig,
   CustomPoi,
   MapConfig,
   CustomPoiInput,
@@ -74,9 +76,19 @@ import type {
   WeightSettings,
 } from "../shared/types";
 import { STANDARD_POI_CATEGORIES } from "../shared/types";
+import { resolveWithinDirectory, sanitizePathSegment } from "./storagePaths";
 
 const STANDARD_CATEGORIES = [...STANDARD_POI_CATEGORIES];
 const JAWG_ALLOWED_HOSTS = new Set(["api.jawg.io", "tile.jawg.io"]);
+const MAX_APARTMENT_PHOTO_BYTES = 15 * 1024 * 1024;
+const MAX_POI_ICON_BYTES = 2 * 1024 * 1024;
+const ALLOWED_POI_ICON_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/svg+xml",
+]);
+const ALLOWED_POI_ICON_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "svg"]);
 
 type MapAssetKind = "tile" | "glyph" | "sprite" | "source";
 type MapAssetManifestEntry = {
@@ -93,22 +105,26 @@ type MapProxyResponse = {
 const mapAssetManifest = new Map<string, MapAssetManifestEntry>();
 const mapResourceInflight = new Map<string, Promise<MapProxyResponse>>();
 
-type AppState = Awaited<ReturnType<typeof initApp>>;
+type AppState = {
+  config: AppConfig;
+  database: ReturnType<typeof createDatabase>;
+  serveUpload(pathname: string): Response;
+};
 
 function requireApartmentInput(input: unknown): ApartmentInput {
   const payload = input as Record<string, unknown>;
   const address = String(payload.address ?? "").trim();
   if (!address) {
-    throw new Error("Address is required");
+    throw badRequest("Address is required");
   }
 
   return {
     address,
-    squareMeters: Number(payload.squareMeters ?? 0),
-    kaltmiete: Number(payload.kaltmiete ?? 0),
-    warmmiete: Number(payload.warmmiete ?? 0),
+    squareMeters: requireFiniteNumber(payload.squareMeters, "Square meters"),
+    kaltmiete: requireFiniteNumber(payload.kaltmiete, "Kaltmiete"),
+    warmmiete: requireFiniteNumber(payload.warmmiete, "Warmmiete"),
     floorLevel: String(payload.floorLevel ?? ""),
-    roomCount: Number(payload.roomCount ?? 0),
+    roomCount: requireFiniteNumber(payload.roomCount, "Rooms"),
     description: String(payload.description ?? ""),
   };
 }
@@ -118,7 +134,7 @@ function requireCustomPoiInput(input: unknown): CustomPoiInput {
   const name = String(payload.name ?? "").trim();
   const address = String(payload.address ?? "").trim();
   if (!name || !address) {
-    throw new Error("Custom POI name and address are required");
+    throw badRequest("Custom POI name and address are required");
   }
 
   return {
@@ -132,12 +148,21 @@ function requireCustomPoiInput(input: unknown): CustomPoiInput {
 function mergeWeightSettings(input: unknown, current: WeightSettings): WeightSettings {
   const payload = input as Record<string, unknown>;
   return {
-    pricePerSqm: Number(payload.pricePerSqm ?? current.pricePerSqm),
-    rooms: Number(payload.rooms ?? current.rooms),
-    supermarket: Number(payload.supermarket ?? current.supermarket),
-    sportStudio: Number(payload.sportStudio ?? current.sportStudio),
-    customPoi: Number(payload.customPoi ?? current.customPoi),
+    pricePerSqm: requireFiniteNumber(payload.pricePerSqm ?? current.pricePerSqm, "Price per m²"),
+    rooms: requireFiniteNumber(payload.rooms ?? current.rooms, "Rooms"),
+    supermarket: requireFiniteNumber(payload.supermarket ?? current.supermarket, "Supermarket"),
+    sportStudio: requireFiniteNumber(payload.sportStudio ?? current.sportStudio, "Sport studio"),
+    customPoi: requireFiniteNumber(payload.customPoi ?? current.customPoi, "Custom places"),
   };
+}
+
+function requireFiniteNumber(value: unknown, field: string) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    throw badRequest(`${field} must be a number`);
+  }
+
+  return number;
 }
 
 function categoryLabel(category: StandardPoiCategory | "custom") {
@@ -254,13 +279,23 @@ function requirePoiStatusPayload(input: unknown) {
   });
 
   if (items.length === 0) {
-    throw new Error("At least one POI is required");
+    throw badRequest("At least one POI is required");
   }
 
   return {
     isActive,
     items,
   };
+}
+
+export function serveUploadFile(config: AppConfig, pathname: string): Response {
+  const storageKey = pathname.replace(/^\/uploads\/+/, "");
+  const filePath = resolveWithinDirectory(config.uploadDirectory, storageKey);
+  if (!filePath || !existsSync(filePath)) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  return new Response(Bun.file(filePath));
 }
 
 async function buildStandardPoiScores(app: AppState, apartment: Apartment) {
@@ -364,7 +399,7 @@ async function buildCustomPoiScores(app: AppState, apartment: Apartment, customP
 async function rescoreApartment(app: AppState, apartmentId: number) {
   const apartment = getApartmentById(app.database, apartmentId);
   if (!apartment) {
-    throw new Error("Apartment not found");
+    throw notFound("Apartment not found");
   }
 
   let refreshedApartment = apartment;
@@ -725,7 +760,7 @@ export async function serveMapSource(app: AppState, assetId: string) {
   return fetchMapBinary(app, entry.url, `source:${assetId}`);
 }
 
-export async function initApp() {
+export async function initApp(): Promise<AppState> {
   const config = loadConfig();
   const database = createDatabase(config);
   await seedSportStudios(database);
@@ -736,9 +771,7 @@ export async function initApp() {
     config,
     database,
     serveUpload(pathname: string) {
-      const storageKey = pathname.replace(/^\/uploads\//, "");
-      const filePath = join(config.uploadDirectory, storageKey);
-      return new Response(Bun.file(filePath));
+      return serveUploadFile(config, pathname);
     },
   };
 }
@@ -898,8 +931,8 @@ export async function deleteApartment(app: AppState, apartmentId: number) {
   }
 
   for (const photo of apartment.photos) {
-    const filePath = join(app.config.uploadDirectory, photo.storageKey);
-    if (existsSync(filePath)) {
+    const filePath = resolveWithinDirectory(app.config.uploadDirectory, photo.storageKey);
+    if (filePath && existsSync(filePath)) {
       rmSync(filePath);
     }
   }
@@ -931,8 +964,8 @@ export async function deleteApartmentPhoto(
   }
 
   const storageKey = String(photo.storage_key);
-  const filePath = join(app.config.uploadDirectory, storageKey);
-  if (existsSync(filePath)) {
+  const filePath = resolveWithinDirectory(app.config.uploadDirectory, storageKey);
+  if (filePath && existsSync(filePath)) {
     rmSync(filePath);
   }
 
@@ -1013,7 +1046,7 @@ export function updatePoiCategoryLabel(
   const label = String(value.label ?? "").trim();
 
   if (!category || !label) {
-    throw new Error("Category and label are required");
+    throw badRequest("Category and label are required");
   }
 
   upsertPoiCategoryLabel(app.database, category, subcategory, label);
@@ -1026,9 +1059,42 @@ export async function uploadPoiIcon(
   subcategory: string,
   file: File,
 ) {
+  if (file.size === 0) {
+    throw badRequest("Icon file cannot be empty");
+  }
+  if (file.size > MAX_POI_ICON_BYTES) {
+    throw badRequest("Icon file is too large");
+  }
+
+  const mimeType = file.type.toLowerCase();
+  if (mimeType && !ALLOWED_POI_ICON_MIME_TYPES.has(mimeType)) {
+    throw badRequest("Icon file must be a PNG, JPEG, WebP, or SVG image");
+  }
+
   const buffer = await file.arrayBuffer();
-  const ext = file.name.includes(".") ? file.name.split(".").pop() : "png";
-  const filename = `${category}${subcategory ? "-" + subcategory : ""}.${ext}`;
+  const iconStem = sanitizePathSegment(
+    `${category}${subcategory ? "-" + subcategory : ""}`,
+    "icon",
+  );
+  const safeName = sanitizePathSegment(file.name || "icon.png", "icon.png");
+  const extensionFromName = safeName.includes(".")
+    ? safeName.split(".").pop()?.toLowerCase() ?? ""
+    : "";
+  const extensionFromFileName = ALLOWED_POI_ICON_EXTENSIONS.has(extensionFromName)
+    ? extensionFromName
+    : "";
+  const extensionFromMime =
+    mimeType === "image/svg+xml"
+      ? "svg"
+      : mimeType === "image/jpeg"
+        ? "jpg"
+        : mimeType === "image/webp"
+          ? "webp"
+          : mimeType === "image/png"
+            ? "png"
+            : "";
+  const extension = extensionFromFileName || extensionFromMime || "png";
+  const filename = `${iconStem}.${extension}`;
   const iconDir = join(app.config.uploadDirectory, "icons");
   const targetPath = join(iconDir, filename);
 
@@ -1047,8 +1113,8 @@ export function deletePoiIconHandler(
   );
   if (existing) {
     const filename = existing.iconPath.split("/").pop()!;
-    const filePath = join(app.config.uploadDirectory, "icons", filename);
-    if (existsSync(filePath)) {
+    const filePath = resolveWithinDirectory(join(app.config.uploadDirectory, "icons"), filename);
+    if (filePath && existsSync(filePath)) {
       rmSync(filePath);
     }
     deletePoiIcon(app.database, category, subcategory);
@@ -1062,7 +1128,7 @@ export async function getApartmentMapData(
 ): Promise<MapPayload> {
   const apartment = getApartmentById(app.database, apartmentId);
   if (!apartment) {
-    throw new Error("Apartment not found");
+    throw notFound("Apartment not found");
   }
 
   const scoring = apartment.scoring;

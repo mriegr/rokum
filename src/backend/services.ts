@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import {
   addApartmentPhoto,
   listActivePois,
@@ -20,6 +20,7 @@ import type {
   UbahnRoute,
 } from "../shared/types";
 import { MUNICH_GREATER_AREA_BOUNDS } from "../shared/munich";
+import { badRequest } from "./httpErrors";
 import {
   getMunichUbahnStations,
   getMunichUbahnRoutes,
@@ -27,6 +28,7 @@ import {
   saveMunichUbahnRoutes,
 } from "./transitOverlayCache";
 import { simplifyRoutePaths } from "./routeSimplifier";
+import { sanitizePathSegment } from "./storagePaths";
 
 type Coordinates = {
   latitude: number;
@@ -36,6 +38,7 @@ type Coordinates = {
 const STANDARD_RADIUS_METERS = 1800;
 const USER_AGENT = "rokum-apartment-shortlist/1.0";
 const OVERPASS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const MAX_APARTMENT_PHOTO_BYTES = 15 * 1024 * 1024;
 
 type OverpassCacheEntry = {
   expiresAt: number;
@@ -436,7 +439,7 @@ export function seedSportStudioIcons(database: Database, iconDir: string) {
 
   for (const tag of uniqueTags) {
     const svg = makeSportSvg(tag);
-    const safeName = tag.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const safeName = sanitizePathSegment(tag, "sport");
     const filename = `${safeName}.svg`;
     const filePath = join(iconDir, filename);
     if (!existsSync(filePath)) {
@@ -693,10 +696,6 @@ const SUBICON_MAP: Record<string, string> = {
     `<path d="M10,10l-2,2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
 };
 
-function sanitizeFileName(value: string) {
-  return basename(value).replace(/[^a-zA-Z0-9._-]/g, "-");
-}
-
 export async function storeUploadedPhotos(
   database: Database,
   config: AppConfig,
@@ -709,8 +708,17 @@ export async function storeUploadedPhotos(
       continue;
     }
 
+    if (value.size > MAX_APARTMENT_PHOTO_BYTES) {
+      throw badRequest("Apartment photos must be smaller than 15 MB");
+    }
+
+    const mimeType = value.type.toLowerCase();
+    if (mimeType && !mimeType.startsWith("image/")) {
+      throw badRequest("Apartment photos must be image files");
+    }
+
     const buffer = await value.arrayBuffer();
-    const safeName = sanitizeFileName(value.name || "photo.jpg");
+    const safeName = sanitizePathSegment(value.name || "photo.jpg", "photo.jpg");
     const hash = createHash("sha1")
       .update(`${apartmentId}:${safeName}:${Date.now()}`)
       .digest("hex")

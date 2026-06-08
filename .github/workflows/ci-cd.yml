@@ -1,0 +1,119 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rokum-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Unit tests
+        run: bun test
+
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Browser smoke test
+        run: RUN_BROWSER_TESTS=1 bun test src/frontend/mapView.browser.test.ts
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/rokum_deploy_key
+          chmod 600 ~/.ssh/rokum_deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+
+      - name: Build production env file
+        run: |
+          set -euo pipefail
+          BASIC_AUTH_HASH="$(docker run --rm caddy:2.8.4-alpine caddy hash-password --plaintext "$BASIC_AUTH_PASSWORD")"
+          cat > .env <<EOF
+          PORT=3000
+          CITY=Munich
+          DATA_DIR=/data
+          DB_PATH=/data/rokum.sqlite
+          UPLOAD_DIR=/data/uploads
+          NOMINATIM_BASE_URL=https://nominatim.openstreetmap.org
+          OVERPASS_BASE_URL=https://overpass-api.de/api/interpreter
+          WALKING_ROUTER_BASE_URL=https://router.project-osrm.org
+          TRANSIT_MODE=heuristic
+          TRANSIT_BASE_URL=
+          JAWG_API=
+          JAWG_STYLE_ID=jawg-streets
+          APP_DOMAIN=${APP_DOMAIN}
+          CADDY_EMAIL=${CADDY_EMAIL}
+          BASIC_AUTH_USER=${BASIC_AUTH_USER}
+          BASIC_AUTH_HASH=${BASIC_AUTH_HASH}
+          EOF
+        env:
+          APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+          CADDY_EMAIL: ${{ secrets.CADDY_EMAIL }}
+          BASIC_AUTH_USER: ${{ secrets.BASIC_AUTH_USER }}
+          BASIC_AUTH_PASSWORD: ${{ secrets.BASIC_AUTH_PASSWORD }}
+
+      - name: Copy env file to VPS
+        run: |
+          scp -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes .env "$VPS_USER@$VPS_HOST:$VPS_PATH/.env"
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PATH: ${{ secrets.VPS_PATH }}
+
+      - name: Deploy on VPS
+        run: |
+          ssh -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" <<EOF
+            set -euo pipefail
+            cd "$VPS_PATH"
+            mkdir -p data/caddy-data data/caddy-config
+            git fetch origin main
+            git reset --hard origin/main
+            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+          EOF
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PATH: ${{ secrets.VPS_PATH }}
+
+      - name: Smoke test deployment
+        run: |
+          curl --retry 12 --retry-all-errors --retry-delay 5 --fail-with-body \
+            -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASSWORD" \
+            "https://$APP_DOMAIN/healthz"
+        env:
+          APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+          BASIC_AUTH_USER: ${{ secrets.BASIC_AUTH_USER }}
+          BASIC_AUTH_PASSWORD: ${{ secrets.BASIC_AUTH_PASSWORD }}

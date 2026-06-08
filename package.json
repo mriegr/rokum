@@ -8,6 +8,7 @@
     "start": "bun index.ts",
     "test": "bun test",
     "test:browser": "RUN_BROWSER_TESTS=1 bun test src/frontend/mapView.browser.test.ts",
+    "backup:db": "bun scripts/backup-db.ts",
     "transit:cache": "bun scripts/cache-transit-overlay.ts",
     "seed:munich": "bun scripts/cache-munich-data.ts"
   },
