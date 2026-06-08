@@ -3,15 +3,20 @@ import type {
   BootstrapPayload,
   CustomPoi,
   MapPayload,
+  PoiCategoryManagementPayload,
   PoiCategory,
+  PoiIconMapping,
   PoiManagementPayload,
   StandardPoiCategory,
   WeightSettings,
 } from "../shared/types";
 import type { PanelView, SortMode } from "./state";
 import {
+  isCategoryExpanded,
   MANAGED_POI_CATEGORY_ORDER,
+  poiIconKey,
   root,
+  setPoiCategoryLabels,
   selectedManagedPois,
   state,
   visibleManagedPoiKeys,
@@ -29,6 +34,7 @@ import {
   renderPoiStats,
   renderPoiTable,
   renderPoiToolbar,
+  renderCategoriesView,
   renderPoisView,
   renderTopbar,
   updateMapSidebar,
@@ -58,7 +64,9 @@ export function render() {
           ? renderListView()
           : state.activeView === "map"
             ? renderMapView()
-            : renderPoisView()
+            : state.activeView === "pois"
+              ? renderPoisView()
+              : renderCategoriesView()
       }
     </div>
   `;
@@ -92,15 +100,26 @@ function bindEvents() {
             ? "map"
             : target.dataset.view === "pois"
               ? "pois"
+              : target.dataset.view === "categories"
+                ? "categories"
               : "list";
         state.activeView = view;
         window.history.replaceState(
           {},
           "",
-          view === "map" ? "/map" : view === "pois" ? "/pois" : "/",
+          view === "map"
+            ? "/map"
+            : view === "pois"
+              ? "/pois"
+              : view === "categories"
+                ? "/categories"
+                : "/",
         );
         if (view === "pois") {
           await loadPoiManagement();
+        }
+        if (view === "categories") {
+          await loadCategoryManagement();
         }
         render();
         if (view === "map" && state.selectedApartmentId) {
@@ -299,6 +318,7 @@ function bindEvents() {
   });
 
   bindPoiAdminEvents();
+  bindCategoryAdminEvents();
 }
 
 export async function loadBootstrap() {
@@ -307,6 +327,8 @@ export async function loadBootstrap() {
   state.customPois = payload.customPois;
   state.settings = payload.settings;
   state.mapConfig = payload.mapConfig;
+  state.poiCategoryLabels = payload.poiCategoryLabels;
+  setPoiCategoryLabels(payload.poiCategoryLabels);
   state.selectedApartmentId = payload.apartments[0]?.id ?? null;
   render();
   if (state.activeView === "map" && state.selectedApartmentId && mapIsAvailable(state.mapConfig)) {
@@ -319,12 +341,50 @@ export async function loadPoiManagement(force = false) {
     return;
   }
 
-  const payload = await requestJson<PoiManagementPayload>("/api/pois");
-  state.pois = payload.pois;
-  state.indexedPois = indexManagedPois(payload.pois);
+  const [poisPayload, iconsPayload] = await Promise.all([
+    requestJson<PoiManagementPayload>("/api/pois"),
+    requestJson<PoiIconMapping>("/api/poi-icons"),
+  ]);
+  state.pois = poisPayload.pois;
+  state.indexedPois = indexManagedPois(poisPayload.pois);
   state.poisLoaded = true;
   state.selectedManagedPoiKeys = state.selectedManagedPoiKeys.filter((key) =>
-    payload.pois.some((poi) => managedPoiKey(poi) === key),
+    poisPayload.pois.some((poi) => managedPoiKey(poi) === key),
+  );
+  const iconMap = new Map<string, string>();
+  for (const icon of iconsPayload.icons) {
+    iconMap.set(`${icon.category}:${icon.subcategory}`, icon.iconPath);
+  }
+  state.managedPoiIcons = iconMap;
+}
+
+export async function loadCategoryManagement(force = false) {
+  if (state.categoriesLoaded && !force) {
+    return;
+  }
+
+  const [payload, iconsPayload] = await Promise.all([
+    requestJson<PoiCategoryManagementPayload>("/api/categories"),
+    requestJson<PoiIconMapping>("/api/poi-icons"),
+  ]);
+  state.categoryManagement = payload;
+  state.categoriesLoaded = true;
+  const visibleCategoryKeys = payload.categories.map((category) => poiIconKey(category.category, ""));
+  state.expandedCategoryKeys = state.expandedCategoryKeys.filter((key) => visibleCategoryKeys.includes(key));
+  const iconMap = new Map<string, string>();
+  for (const icon of iconsPayload.icons) {
+    iconMap.set(`${icon.category}:${icon.subcategory}`, icon.iconPath);
+  }
+  state.managedPoiIcons = iconMap;
+  setPoiCategoryLabels(
+    payload.categories.flatMap((category) => [
+      { category: category.category, subcategory: "", label: category.label },
+      ...category.subcategories.map((subcategory) => ({
+        category: subcategory.category,
+        subcategory: subcategory.subcategory,
+        label: subcategory.label,
+      })),
+    ]),
   );
 }
 
@@ -334,6 +394,8 @@ export async function refreshAppData(options?: { refreshMap?: boolean; refreshPo
   state.customPois = bootstrap.customPois;
   state.settings = bootstrap.settings;
   state.mapConfig = bootstrap.mapConfig;
+  state.poiCategoryLabels = bootstrap.poiCategoryLabels;
+  setPoiCategoryLabels(bootstrap.poiCategoryLabels);
   state.selectedApartmentId =
     state.selectedApartmentId && bootstrap.apartments.some((item) => item.id === state.selectedApartmentId)
       ? state.selectedApartmentId
@@ -463,7 +525,7 @@ export function bindPoiAdminEvents() {
     schedulePoiSearchUpdate();
   });
 
-  shell.addEventListener("change", (event) => {
+  shell.addEventListener("change", async (event) => {
     const input = event.target as HTMLInputElement | HTMLSelectElement | null;
     if (!input) {
       return;
@@ -515,7 +577,9 @@ export function bindPoiAdminEvents() {
 
       state.visibleManagedPoiCategories[category] = input.checked;
       updatePoiRegions();
+      return;
     }
+
   });
 
   shell.addEventListener("click", async (event) => {
@@ -591,6 +655,114 @@ export function bindPoiAdminEvents() {
       state.selectedManagedSportTags = [];
       updatePoiRegions({ controls: true });
     }
+  });
+}
+
+export function bindCategoryAdminEvents() {
+  const shell = document.querySelector<HTMLElement>(".categories-shell");
+  if (!shell) {
+    return;
+  }
+
+  shell.addEventListener("change", async (event) => {
+    const input = event.target as HTMLInputElement | null;
+    if (!input || input.dataset.action !== "upload-category-icon" || !input.files?.length) {
+      return;
+    }
+
+    const category = input.dataset.category ?? "";
+    const subcategory = input.dataset.subcategory ?? "";
+    const file = input.files[0];
+    if (!category || !file) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("category", category);
+    formData.append("subcategory", subcategory);
+    formData.append("file", file);
+    await fetch("/api/poi-icons", { method: "PUT", body: formData });
+    await Promise.all([refreshAppData({ refreshPois: state.poisLoaded }), loadCategoryManagement(true)]);
+    render();
+    input.value = "";
+  });
+
+  shell.addEventListener("submit", async (event) => {
+    const form = event.target as HTMLFormElement | null;
+    if (!form || form.dataset.action !== "save-category-label") {
+      return;
+    }
+
+    event.preventDefault();
+    const formData = new FormData(form);
+    await requestJson("/api/categories/label", {
+      method: "PUT",
+      body: JSON.stringify({
+        category: String(formData.get("category") ?? ""),
+        subcategory: String(formData.get("subcategory") ?? ""),
+        label: String(formData.get("label") ?? ""),
+      }),
+    });
+    state.editingCategoryKey = null;
+    await Promise.all([refreshAppData({ refreshPois: state.poisLoaded }), loadCategoryManagement(true)]);
+    render();
+  });
+
+  shell.addEventListener("click", async (event) => {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-action]");
+    if (!target) {
+      return;
+    }
+
+    if (target.dataset.action === "toggle-category-section") {
+      const category = target.dataset.category ?? "";
+      if (!category) {
+        return;
+      }
+      const key = poiIconKey(category, "");
+      state.expandedCategoryKeys = isCategoryExpanded(category)
+        ? state.expandedCategoryKeys.filter((value) => value !== key)
+        : [...state.expandedCategoryKeys, key];
+      render();
+      return;
+    }
+
+    if (target.dataset.action === "start-edit-category-label") {
+      const category = target.dataset.category ?? "";
+      const subcategory = target.dataset.subcategory ?? "";
+      if (!category) {
+        return;
+      }
+      state.editingCategoryKey = poiIconKey(category, subcategory);
+      if (!subcategory) {
+        const categoryKey = poiIconKey(category, "");
+        if (!state.expandedCategoryKeys.includes(categoryKey)) {
+          state.expandedCategoryKeys = [...state.expandedCategoryKeys, categoryKey];
+        }
+      }
+      render();
+      return;
+    }
+
+    if (target.dataset.action === "cancel-edit-category-label") {
+      state.editingCategoryKey = null;
+      render();
+      return;
+    }
+
+    if (target.dataset.action !== "delete-category-icon") {
+      return;
+    }
+
+    await requestJson("/api/poi-icons", {
+      method: "DELETE",
+      body: JSON.stringify({
+        category: target.dataset.category ?? "",
+        subcategory: target.dataset.subcategory ?? "",
+      }),
+    });
+    await Promise.all([refreshAppData({ refreshPois: state.poisLoaded }), loadCategoryManagement(true)]);
+    render();
   });
 }
 

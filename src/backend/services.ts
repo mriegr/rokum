@@ -209,6 +209,7 @@ async function fetchOverpassPois(
 
       return {
         category,
+        subcategory: "",
         name,
         address,
         isActive: true,
@@ -217,6 +218,7 @@ async function fetchOverpassPois(
         source: "overpass",
         externalId: `${element.id}`,
         tags: [],
+        note: "",
       } satisfies Omit<PoiRecord, "id">;
     })
     .filter(Boolean) as Omit<PoiRecord, "id">[];
@@ -400,6 +402,7 @@ export async function seedSportStudios(database: Database) {
 
     insertOrIgnorePoi(database, {
       category: "sport_studio",
+      subcategory: "",
       name: venue.name,
       address,
       isActive: true,
@@ -408,6 +411,7 @@ export async function seedSportStudios(database: Database) {
       source: "urbansportsclub",
       externalId: venue.slug ?? null,
       tags: venue.categories?.filter(Boolean) ?? [],
+      note: "",
     });
   }
 }

@@ -35,3 +35,6 @@ approval_mode = "approve"
 
 [mcp_servers.playwright.tools.browser_fill_form]
 approval_mode = "approve"
+
+[mcp_servers.playwright.tools.browser_file_upload]
+approval_mode = "approve"

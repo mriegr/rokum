@@ -10,6 +10,8 @@ import {
   listActivePois,
   listActivePoisByCategory,
   listCustomPois,
+  listPoiCategoryLabels,
+  upsertPoiCategoryLabel,
 } from "./db";
 import type { AppConfig } from "../shared/types";
 
@@ -44,6 +46,7 @@ test("inactive standard pois are excluded from active poi queries", () => {
 
   insertOrIgnorePoi(database, {
     category: "supermarket",
+    subcategory: "",
     name: "Active market",
     address: "Street 1",
     isActive: true,
@@ -52,9 +55,11 @@ test("inactive standard pois are excluded from active poi queries", () => {
     source: "test",
     externalId: null,
     tags: [],
+    note: "",
   });
   insertOrIgnorePoi(database, {
     category: "supermarket",
+    subcategory: "",
     name: "Inactive market",
     address: "Street 2",
     isActive: true,
@@ -63,6 +68,7 @@ test("inactive standard pois are excluded from active poi queries", () => {
     source: "test",
     externalId: null,
     tags: [],
+    note: "",
   });
 
   const allSupermarkets = listActivePoisByCategory(database, "supermarket");
@@ -99,4 +105,16 @@ test("bulk poi activation also applies to custom pois", () => {
   });
 
   expect(listCustomPois(database)[0]?.isActive).toBe(false);
+});
+
+test("category labels can be stored for categories and subcategories", () => {
+  const database = createDatabase(createTestConfig());
+
+  upsertPoiCategoryLabel(database, "supermarket", "", "Groceries");
+  upsertPoiCategoryLabel(database, "supermarket", "edeka", "EDEKA stores");
+
+  expect(listPoiCategoryLabels(database)).toEqual([
+    { category: "supermarket", subcategory: "", label: "Groceries" },
+    { category: "supermarket", subcategory: "edeka", label: "EDEKA stores" },
+  ]);
 });

@@ -1,0 +1,1250 @@
+{
+  "location": "Munich, Germany",
+  "source": "both",
+  "grid": 3,
+  "chain": null,
+  "scrapedAt": "2026-06-07T21:01:13.619Z",
+  "count": 124,
+  "supermarkets": [
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Tal 24",
+      "latitude": 48.1358111,
+      "longitude": 11.5795567,
+      "placeId": null,
+      "osmId": "node/251874764",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Innere Wiener Straße 50",
+      "latitude": 48.1341462,
+      "longitude": 11.5968532,
+      "placeId": null,
+      "osmId": "node/266698131",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1464689,
+      "longitude": 11.4609287,
+      "placeId": null,
+      "osmId": "node/269698945",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Freischützstraße 11",
+      "latitude": 48.1577756,
+      "longitude": 11.6415212,
+      "placeId": null,
+      "osmId": "node/307463699",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Feringastraße 4",
+      "latitude": 48.1782627,
+      "longitude": 11.6327684,
+      "placeId": null,
+      "osmId": "node/322621885",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Romanplatz 9",
+      "latitude": 48.1550032,
+      "longitude": 11.5119166,
+      "placeId": null,
+      "osmId": "node/336026354",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Giesinger Bahnhofplatz 2",
+      "latitude": 48.1111412,
+      "longitude": 11.5955747,
+      "placeId": null,
+      "osmId": "node/389528610",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Bahnhofsweg 10",
+      "latitude": 48.0658699,
+      "longitude": 11.6134292,
+      "placeId": null,
+      "osmId": "node/414178360",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Untere Bahnhofstraße 36",
+      "latitude": 48.1318005,
+      "longitude": 11.3642229,
+      "placeId": null,
+      "osmId": "node/470686431",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Plinganserstraße 33",
+      "latitude": 48.1184804,
+      "longitude": 11.5407245,
+      "placeId": null,
+      "osmId": "node/567146020",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Boschetsrieder Straße 72",
+      "latitude": 48.1000457,
+      "longitude": 11.5275431,
+      "placeId": null,
+      "osmId": "node/653921569",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Kirchenstraße 12",
+      "latitude": 48.1943372,
+      "longitude": 11.3722868,
+      "placeId": null,
+      "osmId": "node/780196567",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Karl-Theodor-Straße 65",
+      "latitude": 48.1667612,
+      "longitude": 11.5765954,
+      "placeId": null,
+      "osmId": "node/890780484",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1287755,
+      "longitude": 11.5572156,
+      "placeId": null,
+      "osmId": "node/1091413946",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Rosenkavalierplatz 12",
+      "latitude": 48.1511066,
+      "longitude": 11.6200638,
+      "placeId": null,
+      "osmId": "node/1111371660",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.2437036,
+      "longitude": 11.5497461,
+      "placeId": null,
+      "osmId": "node/1267895468",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Hauptstraße 25",
+      "latitude": 48.0756596,
+      "longitude": 11.6657263,
+      "placeId": null,
+      "osmId": "node/1272966323",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Weißenburger Straße 41",
+      "latitude": 48.1283869,
+      "longitude": 11.6017821,
+      "placeId": null,
+      "osmId": "node/1300476419",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Agnes-Bernauer-Straße 151",
+      "latitude": 48.1404877,
+      "longitude": 11.4895193,
+      "placeId": null,
+      "osmId": "node/1309258551",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Verdistraße 83",
+      "latitude": 48.1645787,
+      "longitude": 11.4710108,
+      "placeId": null,
+      "osmId": "node/1309258571",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Richard-Strauss-Straße 80",
+      "latitude": 48.1484289,
+      "longitude": 11.6174928,
+      "placeId": null,
+      "osmId": "node/1309258598",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Knorrstraße 59",
+      "latitude": 48.1841645,
+      "longitude": 11.5726961,
+      "placeId": null,
+      "osmId": "node/1309258706",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Pilgersheimer Straße 4",
+      "latitude": 48.1196879,
+      "longitude": 11.5752733,
+      "placeId": null,
+      "osmId": "node/1309258867",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Elsenheimerstraße 53",
+      "latitude": 48.1372589,
+      "longitude": 11.5236483,
+      "placeId": null,
+      "osmId": "node/1309258873",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Theresienhöhe 12",
+      "latitude": 48.1335457,
+      "longitude": 11.5456451,
+      "placeId": null,
+      "osmId": "node/1309258887",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Rumfordstraße 10",
+      "latitude": 48.1331546,
+      "longitude": 11.5766499,
+      "placeId": null,
+      "osmId": "node/1309258899",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Herterichstraße 99",
+      "latitude": 48.0782392,
+      "longitude": 11.5077904,
+      "placeId": null,
+      "osmId": "node/1309258906",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Leonrodplatz 1",
+      "latitude": 48.1586143,
+      "longitude": 11.5479092,
+      "placeId": null,
+      "osmId": "node/1309258950",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Kaflerstraße 2",
+      "latitude": 48.1494381,
+      "longitude": 11.459771,
+      "placeId": null,
+      "osmId": "node/1309258963",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Einsteinstraße 104",
+      "latitude": 48.1358946,
+      "longitude": 11.6084064,
+      "placeId": null,
+      "osmId": "node/1309258992",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Passauerstraße 38",
+      "latitude": 48.1133078,
+      "longitude": 11.533497,
+      "placeId": null,
+      "osmId": "node/1309259020",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Hohenzollernstraße 78",
+      "latitude": 48.1603816,
+      "longitude": 11.5757287,
+      "placeId": null,
+      "osmId": "node/1309259053",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Kreillerstraße 28",
+      "latitude": 48.1271585,
+      "longitude": 11.6342466,
+      "placeId": null,
+      "osmId": "node/1309259087",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Senftenauerstraße 95",
+      "latitude": 48.1299514,
+      "longitude": 11.4873545,
+      "placeId": null,
+      "osmId": "node/1309259111",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Keferloherstraße 69",
+      "latitude": 48.1818632,
+      "longitude": 11.5678351,
+      "placeId": null,
+      "osmId": "node/1309259131",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Bahnhofstraße 79-81",
+      "latitude": 48.1184031,
+      "longitude": 11.4292095,
+      "placeId": null,
+      "osmId": "node/1309264582",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Hans-Stießberger-Straße 5",
+      "latitude": 48.1097595,
+      "longitude": 11.7179003,
+      "placeId": null,
+      "osmId": "node/1328528932",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Stockacher Straße 10",
+      "latitude": 48.1504054,
+      "longitude": 11.4449572,
+      "placeId": null,
+      "osmId": "node/1329488571",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Münchner Straße 140",
+      "latitude": 48.2270089,
+      "longitude": 11.4636252,
+      "placeId": null,
+      "osmId": "node/1399932643",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Schleißheimer Straße 506",
+      "latitude": 48.2127585,
+      "longitude": 11.5633437,
+      "placeId": null,
+      "osmId": "node/1483770744",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Alfred-Arndt-Straße 1",
+      "latitude": 48.1830018,
+      "longitude": 11.5938924,
+      "placeId": null,
+      "osmId": "node/1511611093",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Augustenstraße 79",
+      "latitude": 48.1507318,
+      "longitude": 11.5637062,
+      "placeId": null,
+      "osmId": "node/1567316559",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Barer Straße 62",
+      "latitude": 48.1506735,
+      "longitude": 11.5732057,
+      "placeId": null,
+      "osmId": "node/1573738314",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Frankfurter Ring 5a",
+      "latitude": 48.1878456,
+      "longitude": 11.5677439,
+      "placeId": null,
+      "osmId": "node/1631694154",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Schwanthalerstraße 27",
+      "latitude": 48.137278,
+      "longitude": 11.5604871,
+      "placeId": null,
+      "osmId": "node/1645036845",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Rotkreuzplatz 1",
+      "latitude": 48.1525748,
+      "longitude": 11.5336986,
+      "placeId": null,
+      "osmId": "node/1745738299",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Hainbuchenring 5",
+      "latitude": 48.0884121,
+      "longitude": 11.459708,
+      "placeId": null,
+      "osmId": "node/1808479864",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Dachauer Straße 92",
+      "latitude": 48.1514028,
+      "longitude": 11.5583214,
+      "placeId": null,
+      "osmId": "node/1972874105",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Einsteinstraße 130",
+      "latitude": 48.136577,
+      "longitude": 11.6144567,
+      "placeId": null,
+      "osmId": "node/1979074513",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Welfenstraße 20",
+      "latitude": 48.1219575,
+      "longitude": 11.5888691,
+      "placeId": null,
+      "osmId": "node/2084658754",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Augustenstraße 67",
+      "latitude": 48.1500192,
+      "longitude": 11.5633012,
+      "placeId": null,
+      "osmId": "node/2125598769",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Lerchenstraße 7a",
+      "latitude": 48.2028264,
+      "longitude": 11.5415654,
+      "placeId": null,
+      "osmId": "node/2263008863",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1594055,
+      "longitude": 11.643117,
+      "placeId": null,
+      "osmId": "node/2369220784",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Tegernseer Landstraße 64",
+      "latitude": 48.1160229,
+      "longitude": 11.580115,
+      "placeId": null,
+      "osmId": "node/2380883313",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Olchinger Straße 68",
+      "latitude": 48.1852188,
+      "longitude": 11.3866474,
+      "placeId": null,
+      "osmId": "node/2386036706",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Nymphenburger Straße 81",
+      "latitude": 48.1498564,
+      "longitude": 11.5445517,
+      "placeId": null,
+      "osmId": "node/2409331188",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Baierbrunner Straße 75",
+      "latitude": 48.0924129,
+      "longitude": 11.5310903,
+      "placeId": null,
+      "osmId": "node/2427870141",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1838372,
+      "longitude": 11.5318784,
+      "placeId": null,
+      "osmId": "node/2440154667",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Westendstraße 98",
+      "latitude": 48.1384548,
+      "longitude": 11.53673,
+      "placeId": null,
+      "osmId": "node/2441774274",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Sauerbruchstraße 8",
+      "latitude": 48.1140637,
+      "longitude": 11.4762502,
+      "placeId": null,
+      "osmId": "node/2447919113",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Hohenzollernstraße 48",
+      "latitude": 48.1601107,
+      "longitude": 11.579294,
+      "placeId": null,
+      "osmId": "node/2485085537",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Münchener Straße 1",
+      "latitude": 48.1378051,
+      "longitude": 11.3745453,
+      "placeId": null,
+      "osmId": "node/3258620094",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.2032973,
+      "longitude": 11.5874814,
+      "placeId": null,
+      "osmId": "node/3299174802",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Kreillerstraße 200",
+      "latitude": 48.1223062,
+      "longitude": 11.6612385,
+      "placeId": null,
+      "osmId": "node/3467855752",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Breslauer Straße 1",
+      "latitude": 48.1811027,
+      "longitude": 11.5080119,
+      "placeId": null,
+      "osmId": "node/3539723994",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Klenzestraße 52a",
+      "latitude": 48.1287408,
+      "longitude": 11.5710144,
+      "placeId": null,
+      "osmId": "node/3559013902",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Rosa-Bavarese-Straße 3",
+      "latitude": 48.1465129,
+      "longitude": 11.502883,
+      "placeId": null,
+      "osmId": "node/3572614780",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Fürstenrieder Straße 51",
+      "latitude": 48.136607,
+      "longitude": 11.503336,
+      "placeId": null,
+      "osmId": "node/3637981666",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Starnberger Straße 14",
+      "latitude": 48.0655978,
+      "longitude": 11.3788676,
+      "placeId": null,
+      "osmId": "node/3670709951",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.11978,
+      "longitude": 11.4273354,
+      "placeId": null,
+      "osmId": "node/3697841565",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Bahnhofstraße 42",
+      "latitude": 48.1050539,
+      "longitude": 11.4151329,
+      "placeId": null,
+      "osmId": "node/3719939425",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1790049,
+      "longitude": 11.5057101,
+      "placeId": null,
+      "osmId": "node/3743545259",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Isoldenstraße 37",
+      "latitude": 48.1754637,
+      "longitude": 11.581533,
+      "placeId": null,
+      "osmId": "node/3996012157",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1381604,
+      "longitude": 11.5656306,
+      "placeId": null,
+      "osmId": "node/3998202005",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Neurieder Straße 14",
+      "latitude": 48.0873925,
+      "longitude": 11.4850182,
+      "placeId": null,
+      "osmId": "node/4009268348",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Kistlerhofstraße 154",
+      "latitude": 48.0948806,
+      "longitude": 11.5123839,
+      "placeId": null,
+      "osmId": "node/4347034751",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Leopoldstraße 23",
+      "latitude": 48.1577404,
+      "longitude": 11.584383,
+      "placeId": null,
+      "osmId": "node/4371094206",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.0879886,
+      "longitude": 11.4612227,
+      "placeId": null,
+      "osmId": "node/4426684592",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Hafelhofweg 6",
+      "latitude": 48.1234944,
+      "longitude": 11.6706514,
+      "placeId": null,
+      "osmId": "node/4466208914",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Ohmstraße 3",
+      "latitude": 48.1511049,
+      "longitude": 11.6857025,
+      "placeId": null,
+      "osmId": "node/4576016996",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Hermann-Weinhauser-Straße 90",
+      "latitude": 48.1328746,
+      "longitude": 11.6320525,
+      "placeId": null,
+      "osmId": "node/4873824200",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Kühbachstraße 1",
+      "latitude": 48.1168814,
+      "longitude": 11.5718562,
+      "placeId": null,
+      "osmId": "node/4885670421",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Bodenseestraße 281",
+      "latitude": 48.1415544,
+      "longitude": 11.4188386,
+      "placeId": null,
+      "osmId": "node/4900575683",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Neumarkter Straße 64",
+      "latitude": 48.1312461,
+      "longitude": 11.6251391,
+      "placeId": null,
+      "osmId": "node/5260737241",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1065925,
+      "longitude": 11.6450594,
+      "placeId": null,
+      "osmId": "node/5299230013",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Neuhauser Straße 5",
+      "latitude": 48.1381046,
+      "longitude": 11.5707472,
+      "placeId": null,
+      "osmId": "node/5299966455",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1012191,
+      "longitude": 11.6441365,
+      "placeId": null,
+      "osmId": "node/5327327636",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Leopoldstraße 158",
+      "latitude": 48.1704848,
+      "longitude": 11.5863972,
+      "placeId": null,
+      "osmId": "node/5476259997",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Wolfratshauser Straße 149",
+      "latitude": 48.0814135,
+      "longitude": 11.5298626,
+      "placeId": null,
+      "osmId": "node/5656397148",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Elisabeth-Castonier-Platz 25",
+      "latitude": 48.1326713,
+      "longitude": 11.7049442,
+      "placeId": null,
+      "osmId": "node/5992971398",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Friedenheimer Brücke 23",
+      "latitude": 48.1458387,
+      "longitude": 11.5196544,
+      "placeId": null,
+      "osmId": "node/6225815986",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Theresienhöhe 5",
+      "latitude": 48.1364917,
+      "longitude": 11.5479254,
+      "placeId": null,
+      "osmId": "node/6418521089",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.0944227,
+      "longitude": 11.4990289,
+      "placeId": null,
+      "osmId": "node/6573106429",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "August-Everding-Straße 20",
+      "latitude": 48.1256913,
+      "longitude": 11.6107457,
+      "placeId": null,
+      "osmId": "node/6838219011",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Oertelplatz 13",
+      "latitude": 48.1881992,
+      "longitude": 11.468181,
+      "placeId": null,
+      "osmId": "node/7117929608",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Maria-Nindl-Platz 2",
+      "latitude": 48.1636682,
+      "longitude": 11.6303699,
+      "placeId": null,
+      "osmId": "node/7417488417",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": null,
+      "latitude": 48.0878324,
+      "longitude": 11.5996295,
+      "placeId": null,
+      "osmId": "node/8272220811",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Goethestraße 30",
+      "latitude": 48.1357054,
+      "longitude": 11.5584476,
+      "placeId": null,
+      "osmId": "node/8493983380",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Willy-Brandt-Platz 5",
+      "latitude": 48.1317578,
+      "longitude": 11.6899056,
+      "placeId": null,
+      "osmId": "node/8615426609",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Tübinger Straße 3e",
+      "latitude": 48.1335518,
+      "longitude": 11.5245146,
+      "placeId": null,
+      "osmId": "node/8926823037",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Bahnhofstraße 27",
+      "latitude": 48.0694226,
+      "longitude": 11.3769193,
+      "placeId": null,
+      "osmId": "node/9336530060",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Hermine-von-Parish-Straße 11",
+      "latitude": 48.1506345,
+      "longitude": 11.4756355,
+      "placeId": null,
+      "osmId": "node/9497854976",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Naupliastraße 108",
+      "latitude": 48.0926397,
+      "longitude": 11.5680556,
+      "placeId": null,
+      "osmId": "node/9643581806",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1375014,
+      "longitude": 11.5704433,
+      "placeId": null,
+      "osmId": "node/10759264600",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Zielstattstraße 8c",
+      "latitude": 48.1031896,
+      "longitude": 11.532974,
+      "placeId": null,
+      "osmId": "node/10904621523",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Carl-Wery-Straße 35",
+      "latitude": 48.087783,
+      "longitude": 11.6458835,
+      "placeId": null,
+      "osmId": "node/10912550074",
+      "source": "osm"
+    },
+    {
+      "name": "Rossmann",
+      "chain": "Rossmann",
+      "address": "Meglingerstraße 31",
+      "latitude": 48.0907456,
+      "longitude": 11.5060341,
+      "placeId": null,
+      "osmId": "node/11211897543",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Mahatma-Gandhi-Platz 5",
+      "latitude": 48.1413294,
+      "longitude": 11.4101054,
+      "placeId": null,
+      "osmId": "node/12686476146",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Hofer Straße 10",
+      "latitude": 48.0902409,
+      "longitude": 11.6325255,
+      "placeId": null,
+      "osmId": "node/13526971001",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Balanstraße 190",
+      "latitude": 48.1054864,
+      "longitude": 11.6028729,
+      "placeId": null,
+      "osmId": "way/112601066",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Truderinger Straße 192",
+      "latitude": 48.1272748,
+      "longitude": 11.6543788,
+      "placeId": null,
+      "osmId": "way/144254310",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Georg-Reismüller-Straße 28a",
+      "latitude": 48.1941211,
+      "longitude": 11.4656508,
+      "placeId": null,
+      "osmId": "way/158275826",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Osterfeldstraße 41a",
+      "latitude": 48.2310385,
+      "longitude": 11.6879627,
+      "placeId": null,
+      "osmId": "way/197682983",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Biberger Straße 64",
+      "latitude": 48.0677688,
+      "longitude": 11.6195571,
+      "placeId": null,
+      "osmId": "way/201801698",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Albert-Roßhaupter-Straße 37",
+      "latitude": 48.1160952,
+      "longitude": 11.5326231,
+      "placeId": null,
+      "osmId": "way/207916564",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Heimburgstraße 15",
+      "latitude": 48.1480275,
+      "longitude": 11.4438953,
+      "placeId": null,
+      "osmId": "way/220566645",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1394802,
+      "longitude": 11.5647395,
+      "placeId": null,
+      "osmId": "way/271119785",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Wettersteinring 5",
+      "latitude": 48.2440871,
+      "longitude": 11.4485822,
+      "placeId": null,
+      "osmId": "way/285733726",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1488219,
+      "longitude": 11.4625066,
+      "placeId": null,
+      "osmId": "way/326527460",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Rosenheimer Straße 30",
+      "latitude": 48.1298522,
+      "longitude": 11.5913755,
+      "placeId": null,
+      "osmId": "way/339526217",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Orleansplatz 10-12",
+      "latitude": 48.1274206,
+      "longitude": 11.6036873,
+      "placeId": null,
+      "osmId": "way/350838125",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Münchner Freiheit 7",
+      "latitude": 48.1622543,
+      "longitude": 11.5867569,
+      "placeId": null,
+      "osmId": "way/365525200",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": "Arnulfstraße 2",
+      "latitude": 48.1415664,
+      "longitude": 11.5604325,
+      "placeId": null,
+      "osmId": "way/732600286",
+      "source": "osm"
+    },
+    {
+      "name": "dm",
+      "chain": "dm",
+      "address": null,
+      "latitude": 48.1336686,
+      "longitude": 11.5668735,
+      "placeId": null,
+      "osmId": "way/1280253271",
+      "source": "osm"
+    }
+  ]
+}

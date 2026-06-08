@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { createDatabase } from "./db";
 import {
   getBootstrapPayload,
+  getPoiCategoryManagementPayload,
   serveMapStyle,
   serveMapTile,
+  updatePoiCategoryLabel,
 } from "./server";
 import type { AppConfig } from "../shared/types";
 
@@ -151,4 +153,88 @@ test("style proxy returns 503 when the map API is not configured", async () => {
     "http://localhost:3000/api/map/style.json",
   );
   expect(response.status).toBe(503);
+});
+
+test("bootstrap includes stored category label overrides", () => {
+  const config = createAppConfig();
+  databasePaths.push(config.databasePath);
+  const app = {
+    config,
+    database: createDatabase(config),
+  } as any;
+
+  updatePoiCategoryLabel(app, {
+    category: "supermarket",
+    subcategory: "",
+    label: "Groceries",
+  });
+
+  expect(getBootstrapPayload(app).poiCategoryLabels).toEqual([
+    { category: "supermarket", subcategory: "", label: "Groceries" },
+  ]);
+});
+
+test("category management payload merges labels, counts, and subcategory icons", () => {
+  const config = createAppConfig();
+  databasePaths.push(config.databasePath);
+  const database = createDatabase(config);
+  const app = { config, database } as any;
+
+  updatePoiCategoryLabel(app, {
+    category: "supermarket",
+    subcategory: "",
+    label: "Groceries",
+  });
+  updatePoiCategoryLabel(app, {
+    category: "supermarket",
+    subcategory: "edeka",
+    label: "EDEKA stores",
+  });
+
+  database
+    .query(
+      `
+        INSERT INTO pois (
+          category, subcategory, name, address, is_active, latitude, longitude, source, external_id, tags_json, note, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, '[]', '', ?9)
+      `,
+    )
+    .run("supermarket", "", "General market", "Street 1", 1, 48.1, 11.5, "test", new Date().toISOString());
+  database
+    .query(
+      `
+        INSERT INTO pois (
+          category, subcategory, name, address, is_active, latitude, longitude, source, external_id, tags_json, note, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, '[]', '', ?9)
+      `,
+    )
+    .run("supermarket", "edeka", "Edeka One", "Street 2", 0, 48.2, 11.6, "test", new Date().toISOString());
+  database
+    .query(
+      `
+        INSERT INTO poi_icons (category, subcategory, icon_path, updated_at)
+        VALUES (?1, ?2, ?3, ?4)
+      `,
+    )
+    .run("supermarket", "edeka", "/uploads/icons/edeka.png", new Date().toISOString());
+
+  const payload = getPoiCategoryManagementPayload(app);
+  const supermarket = payload.categories.find((entry) => entry.category === "supermarket");
+
+  expect(supermarket).toMatchObject({
+    category: "supermarket",
+    label: "Groceries",
+    itemCount: 2,
+    activeItemCount: 1,
+  });
+  expect(supermarket?.subcategories).toEqual([
+    {
+      category: "supermarket",
+      subcategory: "edeka",
+      label: "EDEKA stores",
+      itemCount: 1,
+      activeItemCount: 0,
+      iconPath: "/uploads/icons/edeka.png",
+    },
+  ]);
 });

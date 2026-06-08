@@ -7,7 +7,9 @@ import type {
   AppConfig,
   CustomPoi,
   CustomPoiInput,
+  PoiCategoryLabelRecord,
   CustomPoiScore,
+  PoiIconRecord,
   PoiRecord,
   StandardPoiCategory,
   StandardPoiScore,
@@ -98,6 +100,7 @@ function mapPoi(row: Record<string, unknown>): PoiRecord {
   return {
     id: Number(row.id),
     category: String(row.category) as StandardPoiCategory,
+    subcategory: String(row.subcategory ?? ""),
     name: String(row.name),
     address: String(row.address),
     isActive: Boolean(row.is_active),
@@ -106,6 +109,7 @@ function mapPoi(row: Record<string, unknown>): PoiRecord {
     source: String(row.source),
     externalId: row.external_id === null ? null : String(row.external_id),
     tags: parseJson(row.tags_json === null ? null : String(row.tags_json), [] as string[]),
+    note: String(row.note ?? ""),
   };
 }
 
@@ -144,6 +148,7 @@ export function createDatabase(config: AppConfig) {
     CREATE TABLE IF NOT EXISTS pois (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       category TEXT NOT NULL,
+      subcategory TEXT NOT NULL DEFAULT '',
       name TEXT NOT NULL,
       address TEXT NOT NULL,
       is_active INTEGER NOT NULL DEFAULT 1,
@@ -152,6 +157,7 @@ export function createDatabase(config: AppConfig) {
       source TEXT NOT NULL,
       external_id TEXT,
       tags_json TEXT NOT NULL DEFAULT '[]',
+      note TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       UNIQUE(category, name, latitude, longitude)
     );
@@ -198,6 +204,22 @@ export function createDatabase(config: AppConfig) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS poi_icons (
+      category TEXT NOT NULL,
+      subcategory TEXT NOT NULL DEFAULT '',
+      icon_path TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(category, subcategory)
+    );
+
+    CREATE TABLE IF NOT EXISTS poi_category_labels (
+      category TEXT NOT NULL,
+      subcategory TEXT NOT NULL DEFAULT '',
+      label TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(category, subcategory)
+    );
   `);
 
   const poiColumns = database
@@ -208,6 +230,12 @@ export function createDatabase(config: AppConfig) {
   }
   if (!poiColumns.some((column) => column.name === "is_active")) {
     database.exec("ALTER TABLE pois ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;");
+  }
+  if (!poiColumns.some((column) => column.name === "note")) {
+    database.exec("ALTER TABLE pois ADD COLUMN note TEXT NOT NULL DEFAULT '';");
+  }
+  if (!poiColumns.some((column) => column.name === "subcategory")) {
+    database.exec("ALTER TABLE pois ADD COLUMN subcategory TEXT NOT NULL DEFAULT '';");
   }
 
   const existingWeights = database
@@ -553,17 +581,20 @@ export function insertOrIgnorePoi(database: SqlDatabase, poi: Omit<PoiRecord, "i
     .query(
       `
         INSERT INTO pois (
-          category, name, address, is_active, latitude, longitude, source, external_id, tags_json, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+          category, subcategory, name, address, is_active, latitude, longitude, source, external_id, tags_json, note, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
         ON CONFLICT(category, name, latitude, longitude) DO UPDATE SET
           address = excluded.address,
           source = excluded.source,
           external_id = excluded.external_id,
-          tags_json = excluded.tags_json
+          tags_json = excluded.tags_json,
+          note = excluded.note,
+          subcategory = excluded.subcategory
       `,
     )
     .run(
       poi.category,
+      poi.subcategory,
       poi.name,
       poi.address,
       poi.isActive ? 1 : 0,
@@ -572,6 +603,7 @@ export function insertOrIgnorePoi(database: SqlDatabase, poi: Omit<PoiRecord, "i
       poi.source,
       poi.externalId,
       JSON.stringify(poi.tags),
+      poi.note,
       now(),
     );
 }
@@ -626,4 +658,88 @@ export function bulkUpdatePoiActiveState(
   for (const customPoiId of payload.customPoiIds) {
     customStatement.run(customPoiId, payload.isActive ? 1 : 0, timestamp);
   }
+}
+
+export function listPoiIcons(database: SqlDatabase): PoiIconRecord[] {
+  return (database
+    .query("SELECT category, subcategory, icon_path FROM poi_icons ORDER BY category, subcategory")
+    .all() as Array<{ category: string; subcategory: string; icon_path: string }>).map(
+    (row) => ({
+      category: row.category,
+      subcategory: row.subcategory,
+      iconPath: row.icon_path,
+    }),
+  );
+}
+
+export function getPoiIcon(
+  database: SqlDatabase,
+  category: string,
+  subcategory: string,
+): PoiIconRecord | null {
+  const row = database
+    .query("SELECT category, subcategory, icon_path FROM poi_icons WHERE category = ?1 AND subcategory = ?2")
+    .get(category, subcategory) as { category: string; subcategory: string; icon_path: string } | null;
+  if (!row) return null;
+  return { category: row.category, subcategory: row.subcategory, iconPath: row.icon_path };
+}
+
+export function upsertPoiIcon(
+  database: SqlDatabase,
+  category: string,
+  subcategory: string,
+  iconPath: string,
+) {
+  database
+    .query(
+      `
+      INSERT INTO poi_icons (category, subcategory, icon_path, updated_at)
+      VALUES (?1, ?2, ?3, ?4)
+      ON CONFLICT(category, subcategory) DO UPDATE SET
+        icon_path = excluded.icon_path,
+        updated_at = excluded.updated_at
+    `,
+    )
+    .run(category, subcategory, iconPath, now());
+}
+
+export function deletePoiIcon(
+  database: SqlDatabase,
+  category: string,
+  subcategory: string,
+) {
+  database
+    .query("DELETE FROM poi_icons WHERE category = ?1 AND subcategory = ?2")
+    .run(category, subcategory);
+}
+
+export function listPoiCategoryLabels(database: SqlDatabase): PoiCategoryLabelRecord[] {
+  return (database
+    .query(
+      "SELECT category, subcategory, label FROM poi_category_labels ORDER BY category, subcategory",
+    )
+    .all() as Array<{ category: string; subcategory: string; label: string }>).map((row) => ({
+    category: row.category,
+    subcategory: row.subcategory,
+    label: row.label,
+  }));
+}
+
+export function upsertPoiCategoryLabel(
+  database: SqlDatabase,
+  category: string,
+  subcategory: string,
+  label: string,
+) {
+  database
+    .query(
+      `
+      INSERT INTO poi_category_labels (category, subcategory, label, updated_at)
+      VALUES (?1, ?2, ?3, ?4)
+      ON CONFLICT(category, subcategory) DO UPDATE SET
+        label = excluded.label,
+        updated_at = excluded.updated_at
+    `,
+    )
+    .run(category, subcategory, label, now());
 }

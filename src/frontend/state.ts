@@ -6,8 +6,11 @@ import type {
   MapConfig,
   MapPayload,
   PoiCategory,
-  PoiRecord,
+  PoiCategoryLabelRecord,
+  PoiCategoryManagementPayload,
+  PoiIconRecord,
   PoiManagementPayload,
+  PoiRecord,
   StandardPoiCategory,
   WeightSettings,
 } from "../shared/types";
@@ -22,7 +25,7 @@ import {
 export type EditorMode = "create" | "edit";
 export type PanelView = "apartment" | "custom-poi" | "settings";
 export type SortMode = "score" | "warmmiete" | "pricePerSqm" | "rooms" | "newest";
-export type MainView = "list" | "map" | "pois";
+export type MainView = "list" | "map" | "pois" | "categories";
 
 export type AppState = BootstrapPayload & {
   activeView: MainView;
@@ -45,6 +48,12 @@ export type AppState = BootstrapPayload & {
   visibleManagedPoiCategories: Record<PoiCategory, boolean>;
   selectedManagedSportTags: string[];
   selectedManagedPoiKeys: string[];
+  managedPoiIcons: Map<string, string>;
+  poiCategoryLabelMap: Map<string, string>;
+  categoriesLoaded: boolean;
+  categoryManagement: PoiCategoryManagementPayload | null;
+  expandedCategoryKeys: string[];
+  editingCategoryKey: string | null;
 };
 
 export type LngLatTuple = [number, number];
@@ -72,6 +81,8 @@ export const initialView: MainView =
     ? "map"
     : window.location.pathname === "/pois"
       ? "pois"
+      : window.location.pathname === "/categories"
+        ? "categories"
       : "list";
 
 export const state: AppState = {
@@ -92,6 +103,7 @@ export const state: AppState = {
     unavailableReason: "Map API configuration is missing.",
     styleUrl: null,
   },
+  poiCategoryLabels: [],
   activeView: initialView,
   selectedApartmentId: null,
   panelView: "apartment",
@@ -125,6 +137,12 @@ export const state: AppState = {
   },
   selectedManagedSportTags: [],
   selectedManagedPoiKeys: [],
+  managedPoiIcons: new Map(),
+  poiCategoryLabelMap: new Map(),
+  categoriesLoaded: false,
+  categoryManagement: null,
+  expandedCategoryKeys: [],
+  editingCategoryKey: null,
 };
 
 export const EMPTY_FEATURE_COLLECTION: FeatureCollection = {
@@ -134,13 +152,13 @@ export const EMPTY_FEATURE_COLLECTION: FeatureCollection = {
 
 export const APARTMENT_SOURCE_ID = "apartment";
 export const POI_SOURCE_ID = "nearby-pois";
-export const CUSTOM_POI_SOURCE_ID = "custom-pois";
+export const POI_SPIDER_LEG_SOURCE_ID = "nearby-poi-spider-legs";
 export const UBAHN_STATION_SOURCE_ID = "ubahn-stations";
 export const UBAHN_SOURCE_ID = "ubahn-routes";
 
 export const APARTMENT_LAYER_ID = "apartment-layer";
+export const POI_SPIDER_LEG_LAYER_ID = "poi-spider-leg-layer";
 export const POI_LAYER_ID = "poi-layer";
-export const CUSTOM_POI_LAYER_ID = "custom-poi-layer";
 export const UBAHN_STATION_LAYER_ID = "ubahn-station-layer";
 export const UBAHN_LAYER_ID = "ubahn-layer";
 
@@ -169,6 +187,28 @@ export const MANAGED_POI_LABELS: Record<PoiCategory, string> = {
   park_or_river: "Parks / river",
   custom: "Custom POIs",
 };
+
+export function setPoiCategoryLabels(records: PoiCategoryLabelRecord[]) {
+  state.poiCategoryLabelMap = new Map(
+    records.map((record) => [poiIconKey(record.category, record.subcategory), record.label]),
+  );
+}
+
+export function standardPoiLabel(category: StandardPoiCategory) {
+  return state.poiCategoryLabelMap.get(poiIconKey(category, "")) ?? POI_LABELS[category];
+}
+
+export function managedPoiCategoryLabel(category: PoiCategory) {
+  if (category === "custom") {
+    return MANAGED_POI_LABELS.custom;
+  }
+
+  return standardPoiLabel(category);
+}
+
+export function categoryDisplayLabel(category: string, subcategory: string, fallback: string) {
+  return state.poiCategoryLabelMap.get(poiIconKey(category, subcategory)) ?? fallback;
+}
 
 export function currentApartment() {
   return state.apartments.find((apartment) => apartment.id === state.selectedApartmentId) ?? null;
@@ -264,4 +304,23 @@ export function sortedApartments() {
 
 export function visibleManagedPoiKeys() {
   return filteredManagedPoiEntries().map(({ key }) => key);
+}
+
+export function poiIconKey(category: string, subcategory: string) {
+  return `${category}:${subcategory}`;
+}
+
+export function isCategoryExpanded(category: string) {
+  return state.expandedCategoryKeys.includes(poiIconKey(category, ""));
+}
+
+export function getPoiIconUrl(category: string, subcategory: string): string | null {
+  return state.managedPoiIcons.get(poiIconKey(category, subcategory)) ?? null;
+}
+
+export function getSubcategoriesForCategory(category: string): string[] {
+  return (
+    state.categoryManagement?.categories
+      .find((entry) => entry.category === category)?.subcategories.map((entry) => entry.subcategory) ?? []
+  );
 }

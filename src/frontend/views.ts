@@ -1,11 +1,15 @@
 import type { Apartment, ManagedPoi, StandardPoiCategory, WeightSettings } from "../shared/types";
 import {
+  categoryDisplayLabel,
   filteredManagedPois,
   groupedVisiblePois,
-  MANAGED_POI_LABELS,
+  isCategoryExpanded,
+  managedPoiCategoryLabel,
   MANAGED_POI_CATEGORY_ORDER,
   POI_LABELS,
+  poiIconKey,
   state,
+  standardPoiLabel,
   sortedApartments,
   visibleManagedPoiSelectionState,
   visibleNearbyPois,
@@ -20,6 +24,7 @@ import {
   scoreTone,
 } from "./helpers";
 import { managedPoiKey, summarizePoiCategories, summarizeSportTags } from "./poiFilters";
+import { ICON_MAP } from "./icons";
 
 export function renderTopbar() {
   return `
@@ -35,6 +40,7 @@ export function renderTopbar() {
         <button class="tab ${state.activeView === "list" ? "is-active" : ""}" data-action="switch-view" data-view="list">List</button>
         <button class="tab ${state.activeView === "map" ? "is-active" : ""}" data-action="switch-view" data-view="map">Map</button>
         <button class="tab ${state.activeView === "pois" ? "is-active" : ""}" data-action="switch-view" data-view="pois">POIs</button>
+        <button class="tab ${state.activeView === "categories" ? "is-active" : ""}" data-action="switch-view" data-view="categories">Categories</button>
       </nav>
     </header>
   `;
@@ -46,7 +52,7 @@ export function renderScorePills(apartment: Apartment) {
     .map(
       (score) => `
         <div class="score-pill tone-${scoreTone(score.score)}">
-          <span>${escapeHtml(score.label)}</span>
+          <span>${escapeHtml(standardPoiLabel(score.category))}</span>
           <strong>${formatScore(score.score)}</strong>
         </div>
       `,
@@ -434,7 +440,7 @@ export function renderPoiCategoryFilters() {
                 ${state.visibleManagedPoiCategories[category] ? "checked" : ""}
                 ${summary.total ? "" : "disabled"}
               />
-              <span>${MANAGED_POI_LABELS[category]} (${summary.active}/${summary.total})</span>
+              <span>${managedPoiCategoryLabel(category)} (${summary.active}/${summary.total})</span>
             </label>
           `;
         }).join("")}
@@ -606,6 +612,228 @@ export function renderPoisView() {
   `;
 }
 
+function renderCategoryIconControls(category: string, subcategory: string, label: string, iconPath: string | null) {
+  const defaultIcon = subcategory ? ICON_MAP[subcategory.toLowerCase()] : null;
+  const iconSrc = iconPath ?? defaultIcon;
+  const preview = iconSrc
+    ? `<img
+          src="${escapeHtml(iconSrc)}"
+          alt="${escapeHtml(label)}"
+          width="28"
+          height="28"
+          crossorigin="anonymous"
+        />`
+    : `<span class="category-icon-fallback">${escapeHtml(label.charAt(0).toUpperCase())}</span>`;
+
+  return `
+    <div class="category-icon-block">
+      <div class="category-icon-preview">
+        ${preview}
+      </div>
+      <div class="category-icon-actions">
+        <label class="ghost-button compact-button">
+          Upload icon
+          <input
+            type="file"
+            accept="image/png,image/svg+xml,image/x-icon"
+            hidden
+            data-action="upload-category-icon"
+            data-category="${escapeHtml(category)}"
+            data-subcategory="${escapeHtml(subcategory)}"
+          />
+        </label>
+        ${
+          iconPath
+            ? `<button class="ghost-button compact-button danger" data-action="delete-category-icon" data-category="${escapeHtml(category)}" data-subcategory="${escapeHtml(subcategory)}">Reset</button>`
+            : ""
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderCategoryLabelForm(category: string, subcategory: string, currentLabel: string) {
+  return `
+    <form class="category-label-form" data-action="save-category-label">
+      <input type="hidden" name="category" value="${escapeHtml(category)}" />
+      <input type="hidden" name="subcategory" value="${escapeHtml(subcategory)}" />
+      <label>
+        ${subcategory ? "Subcategory name" : "Category name"}
+        <input
+          type="text"
+          name="label"
+          value="${escapeHtml(currentLabel)}"
+          placeholder="${subcategory ? "Subcategory name" : "Category name"}"
+          required
+        />
+      </label>
+      <div class="category-label-actions">
+        <button type="submit" class="ghost-button compact-button">Save</button>
+        <button type="button" class="ghost-button compact-button" data-action="cancel-edit-category-label">Cancel</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderCategoryCountRow(itemCount: number, activeItemCount: number) {
+  return `
+    <div class="category-count-row">
+      <span class="category-count-badge">${activeItemCount}/${itemCount} active</span>
+      <span class="category-count-badge">${itemCount} items</span>
+    </div>
+  `;
+}
+
+function renderCategoryCard() {
+  const categories = state.categoryManagement?.categories ?? [];
+
+  return categories
+    .map(
+      (category) => {
+        const expanded = isCategoryExpanded(category.category);
+        const categoryKey = poiIconKey(category.category, "");
+        const isEditingCategory = state.editingCategoryKey === categoryKey;
+
+        return `
+        <article class="category-card">
+          <div class="category-card-head">
+            <div class="category-title-block">
+              <p class="eyebrow">Standard category</p>
+              <div class="category-title-row">
+                <h2>${escapeHtml(category.label)}</h2>
+                ${renderCategoryCountRow(category.itemCount, category.activeItemCount)}
+              </div>
+            </div>
+            <div class="category-head-actions">
+              <button
+                type="button"
+                class="ghost-button compact-button"
+                data-action="start-edit-category-label"
+                data-category="${escapeHtml(category.category)}"
+                data-subcategory=""
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                class="ghost-button compact-button"
+                data-action="toggle-category-section"
+                data-category="${escapeHtml(category.category)}"
+              >
+                ${expanded ? "Collapse" : `Subcategories (${category.subcategories.length})`}
+              </button>
+              ${renderCategoryIconControls(category.category, "", category.label, category.iconPath)}
+            </div>
+          </div>
+          ${
+            isEditingCategory
+              ? renderCategoryLabelForm(
+                  category.category,
+                  "",
+                  category.label,
+                )
+              : ""
+          }
+          <div class="category-subsection ${expanded ? "" : "is-collapsed"}">
+            <div class="panel-block-head compact">
+              <strong>Subcategories</strong>
+              <span>${category.subcategories.length}</span>
+            </div>
+            ${
+              category.subcategories.length
+                ? `<div class="category-subcategory-list">
+                    ${category.subcategories
+                      .map(
+                        (subcategory) => {
+                          const subcategoryKey = poiIconKey(subcategory.category, subcategory.subcategory);
+                          const isEditingSubcategory = state.editingCategoryKey === subcategoryKey;
+
+                          return `
+                          <div class="category-subcategory-row">
+                            <div class="category-subcategory-head">
+                              <div class="category-subcategory-meta">
+                                <strong>${escapeHtml(subcategory.label)}</strong>
+                                <p>${escapeHtml(categoryDisplayLabel(category.category, "", category.label))}</p>
+                                ${renderCategoryCountRow(subcategory.itemCount, subcategory.activeItemCount)}
+                              </div>
+                              <div class="category-subcategory-actions">
+                                <button
+                                  type="button"
+                                  class="ghost-button compact-button"
+                                  data-action="start-edit-category-label"
+                                  data-category="${escapeHtml(subcategory.category)}"
+                                  data-subcategory="${escapeHtml(subcategory.subcategory)}"
+                                >
+                                  Edit
+                                </button>
+                                ${renderCategoryIconControls(
+                                  subcategory.category,
+                                  subcategory.subcategory,
+                                  subcategory.label,
+                                  subcategory.iconPath,
+                                )}
+                              </div>
+                            </div>
+                            ${
+                              isEditingSubcategory
+                                ? renderCategoryLabelForm(
+                                    subcategory.category,
+                                    subcategory.subcategory,
+                                    subcategory.label,
+                                  )
+                                : ""
+                            }
+                          </div>
+                        `;
+                        },
+                      )
+                      .join("")}
+                  </div>`
+                : `<div class="empty-state compact"><p>No subcategories are stored for this category yet.</p></div>`
+            }
+          </div>
+        </article>
+      `;
+      },
+    )
+    .join("");
+}
+
+export function renderCategoriesView() {
+  const categories = state.categoryManagement?.categories ?? [];
+  const totalItems = categories.reduce((sum, category) => sum + category.itemCount, 0);
+  const activeItems = categories.reduce((sum, category) => sum + category.activeItemCount, 0);
+
+  return `
+    <section class="content-shell categories-shell">
+      <section class="categories-hero">
+        <div>
+          <p class="eyebrow">Category management</p>
+          <h2>Names, icons, and subcategories in one place</h2>
+          <p>Manage the display names and icon overrides for standard POI categories and their stored subcategories.</p>
+        </div>
+        <div class="categories-hero-stats">
+          <article class="poi-stat-card">
+            <strong>${categories.length}</strong>
+            <p>Categories</p>
+          </article>
+          <article class="poi-stat-card">
+            <strong>${totalItems}</strong>
+            <p>Stored POIs</p>
+          </article>
+          <article class="poi-stat-card">
+            <strong>${activeItems}</strong>
+            <p>Active POIs</p>
+          </article>
+        </div>
+      </section>
+      <section class="categories-grid">
+        ${renderCategoryCard()}
+      </section>
+    </section>
+  `;
+}
+
 export function renderMapLegend() {
   const payload = state.mapPayload;
   if (!payload) {
@@ -663,7 +891,7 @@ export function renderMapLegend() {
                     data-category="${category}"
                     ${state.visiblePoiCategories[category] ? "checked" : ""}
                   />
-                  <span>${POI_LABELS[category]}</span>
+                  <span>${standardPoiLabel(category)}</span>
                 </label>
               `,
             ).join("")}
@@ -743,7 +971,7 @@ export function renderMapLegend() {
             (score) => `
               <div class="score-row">
                 <div>
-                  <strong>${escapeHtml(score.label)}</strong>
+                  <strong>${escapeHtml(standardPoiLabel(score.category))}</strong>
                   <p>${escapeHtml(score.poiName)}</p>
                 </div>
                 <div>
@@ -788,7 +1016,7 @@ export function renderMapLegend() {
                         .map(
                           ([category, pois]) => `
                             <section class="poi-group">
-                              <h3>${POI_LABELS[category]}</h3>
+                              <h3>${standardPoiLabel(category)}</h3>
                               ${pois
                                 .map(
                                   (poi) => `

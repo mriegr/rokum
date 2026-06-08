@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   bulkUpdatePoiActiveState,
@@ -7,6 +7,8 @@ import {
   deleteApartmentPhotoRecord,
   deleteApartmentRecord,
   deleteCustomPoiRecord,
+  listPoiCategoryLabels,
+  deletePoiIcon,
   getApartmentById,
   getApartmentPhoto,
   getCustomPoiById,
@@ -16,6 +18,9 @@ import {
   listAllPois,
   listApartments,
   listCustomPois,
+  listPoiIcons,
+  upsertPoiCategoryLabel,
+  upsertPoiIcon,
   replaceApartmentCustomPoiScores,
   replaceApartmentPoiScores,
   saveWeightSettings,
@@ -58,7 +63,10 @@ import type {
   MapConfig,
   CustomPoiInput,
   ManagedPoi,
+  PoiCategoryLabelRecord,
+  PoiCategoryManagementPayload,
   MapPayload,
+  PoiIconMapping,
   PoiManagementPayload,
   StandardPoiCategory,
   StandardPoiScore,
@@ -167,17 +175,49 @@ function categoryLabel(category: StandardPoiCategory | "custom") {
   }
 }
 
+function defaultCategoryLabel(category: StandardPoiCategory) {
+  return categoryLabel(category);
+}
+
+function subcategoryLabelFallback(subcategory: string) {
+  return subcategory
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function buildCategoryLabelMap(app: AppState) {
+  const labels = new Map<string, string>();
+  for (const record of listPoiCategoryLabels(app.database)) {
+    labels.set(`${record.category}:${record.subcategory}`, record.label);
+  }
+  return labels;
+}
+
+function resolveCategoryLabel(
+  labels: Map<string, string>,
+  category: StandardPoiCategory,
+  subcategory = "",
+) {
+  return (
+    labels.get(`${category}:${subcategory}`) ??
+    (subcategory ? subcategoryLabelFallback(subcategory) : defaultCategoryLabel(category))
+  );
+}
+
 function buildManagedPois(app: AppState): ManagedPoi[] {
+  const labels = buildCategoryLabelMap(app);
   const standardPois = listAllPois(app.database).map(
     (poi): ManagedPoi => ({
       id: poi.id,
       kind: "standard",
       category: poi.category,
-      categoryLabel: categoryLabel(poi.category),
+      categoryLabel: resolveCategoryLabel(labels, poi.category),
       name: poi.name,
       address: poi.address,
       isActive: poi.isActive,
-      notes: "",
+      notes: poi.note,
       source: poi.source,
       tags: poi.tags,
       latitude: poi.latitude,
@@ -713,6 +753,7 @@ export async function initApp() {
   const config = loadConfig();
   const database = createDatabase(config);
   await seedSportStudios(database);
+  mkdirSync(join(config.uploadDirectory, "icons"), { recursive: true });
 
   return {
     config,
@@ -731,6 +772,7 @@ export function getBootstrapPayload(app: AppState): BootstrapPayload {
     customPois: listCustomPois(app.database),
     settings: getWeightSettings(app.database),
     mapConfig: buildMapConfig(app),
+    poiCategoryLabels: listPoiCategoryLabels(app.database),
   };
 }
 
@@ -741,6 +783,70 @@ export function getSettings(app: AppState) {
 export function getPoiManagementPayload(app: AppState): PoiManagementPayload {
   return {
     pois: buildManagedPois(app),
+  };
+}
+
+export function getPoiCategoryManagementPayload(app: AppState): PoiCategoryManagementPayload {
+  const labelMap = buildCategoryLabelMap(app);
+  const iconMap = new Map(
+    listPoiIcons(app.database).map((icon) => [`${icon.category}:${icon.subcategory}`, icon.iconPath]),
+  );
+  const counts = app.database
+    .query(
+      `
+      SELECT category, subcategory, COUNT(*) AS item_count, SUM(is_active) AS active_item_count
+      FROM pois
+      GROUP BY category, subcategory
+    `,
+    )
+    .all() as Array<{
+    category: string;
+    subcategory: string;
+    item_count: number;
+    active_item_count: number | null;
+  }>;
+  const countMap = new Map(
+    counts.map((row) => [
+      `${row.category}:${row.subcategory}`,
+      {
+        itemCount: Number(row.item_count),
+        activeItemCount: Number(row.active_item_count ?? 0),
+      },
+    ]),
+  );
+
+  return {
+    categories: STANDARD_CATEGORIES.map((category) => {
+      const topLevelCounts = counts
+        .filter((row) => row.category === category)
+        .reduce(
+          (totals, row) => ({
+            itemCount: totals.itemCount + Number(row.item_count),
+            activeItemCount: totals.activeItemCount + Number(row.active_item_count ?? 0),
+          }),
+          { itemCount: 0, activeItemCount: 0 },
+        );
+      const subcategories = counts
+        .filter((row) => row.category === category && row.subcategory)
+        .sort((left, right) => left.subcategory.localeCompare(right.subcategory))
+        .map((row) => ({
+          category,
+          subcategory: row.subcategory,
+          label: resolveCategoryLabel(labelMap, category, row.subcategory),
+          itemCount: Number(row.item_count),
+          activeItemCount: Number(row.active_item_count ?? 0),
+          iconPath: iconMap.get(`${category}:${row.subcategory}`) ?? null,
+        }));
+
+      return {
+        category,
+        label: resolveCategoryLabel(labelMap, category),
+        itemCount: topLevelCounts.itemCount,
+        activeItemCount: topLevelCounts.activeItemCount,
+        iconPath: iconMap.get(`${category}:`) ?? null,
+        subcategories,
+      };
+    }),
   };
 }
 
@@ -886,6 +992,63 @@ export async function updatePoiStatuses(app: AppState, payload: unknown) {
   });
   await rescoreAllApartments(app);
   return getPoiManagementPayload(app);
+}
+
+export function getPoiIcons(app: AppState): PoiIconMapping {
+  return { icons: listPoiIcons(app.database) };
+}
+
+export function updatePoiCategoryLabel(
+  app: AppState,
+  payload: unknown,
+): PoiCategoryLabelRecord {
+  const value = payload as Record<string, unknown>;
+  const category = String(value.category ?? "").trim();
+  const subcategory = String(value.subcategory ?? "").trim();
+  const label = String(value.label ?? "").trim();
+
+  if (!category || !label) {
+    throw new Error("Category and label are required");
+  }
+
+  upsertPoiCategoryLabel(app.database, category, subcategory, label);
+  return { category, subcategory, label };
+}
+
+export async function uploadPoiIcon(
+  app: AppState,
+  category: string,
+  subcategory: string,
+  file: File,
+) {
+  const buffer = await file.arrayBuffer();
+  const ext = file.name.includes(".") ? file.name.split(".").pop() : "png";
+  const filename = `${category}${subcategory ? "-" + subcategory : ""}.${ext}`;
+  const iconDir = join(app.config.uploadDirectory, "icons");
+  const targetPath = join(iconDir, filename);
+
+  await Bun.write(targetPath, buffer);
+  upsertPoiIcon(app.database, category, subcategory, `/uploads/icons/${filename}`);
+  return getPoiIcons(app);
+}
+
+export function deletePoiIconHandler(
+  app: AppState,
+  category: string,
+  subcategory: string,
+) {
+  const existing = listPoiIcons(app.database).find(
+    (icon) => icon.category === category && icon.subcategory === subcategory,
+  );
+  if (existing) {
+    const filename = existing.iconPath.split("/").pop()!;
+    const filePath = join(app.config.uploadDirectory, "icons", filename);
+    if (existsSync(filePath)) {
+      rmSync(filePath);
+    }
+    deletePoiIcon(app.database, category, subcategory);
+  }
+  return getPoiIcons(app);
 }
 
 export async function getApartmentMapData(

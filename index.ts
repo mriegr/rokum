@@ -5,8 +5,11 @@ import {
   deleteApartment,
   deleteApartmentPhoto,
   deleteCustomPoi,
+  deletePoiIconHandler,
   getApartmentMapData,
   getBootstrapPayload,
+  getPoiCategoryManagementPayload,
+  getPoiIcons,
   getPoiManagementPayload,
   getSettings,
   initApp,
@@ -17,10 +20,12 @@ import {
   serveMapStyle,
   serveMapTile,
   updateApartment,
+  updatePoiCategoryLabel,
   updateCustomPoi,
   updatePoiStatuses,
   updateSettings,
   uploadApartmentPhotos,
+  uploadPoiIcon,
 } from "./src/backend/server";
 
 const app = await initApp();
@@ -48,6 +53,7 @@ Bun.serve({
     "/": appShell,
     "/map": appShell,
     "/pois": appShell,
+    "/categories": appShell,
   },
   development: {
     hmr: true,
@@ -122,6 +128,35 @@ Bun.serve({
       if (pathname === "/api/pois/status" && method === "PUT") {
         const payload = await request.json();
         return json(await updatePoiStatuses(app, payload));
+      }
+
+      if (pathname === "/api/poi-icons" && method === "GET") {
+        return json(getPoiIcons(app));
+      }
+
+      if (pathname === "/api/poi-icons" && method === "PUT") {
+        const formData = await request.formData();
+        const category = String(formData.get("category") ?? "");
+        const subcategory = String(formData.get("subcategory") ?? "");
+        const file = formData.get("file");
+        if (!category || !(file instanceof File)) {
+          return json({ error: "Missing category or file" }, 400);
+        }
+        return json(await uploadPoiIcon(app, category, subcategory, file));
+      }
+
+      if (pathname === "/api/poi-icons" && method === "DELETE") {
+        const payload = await request.json() as { category: string; subcategory?: string };
+        return json(deletePoiIconHandler(app, payload.category, payload.subcategory ?? ""));
+      }
+
+      if (pathname === "/api/categories" && method === "GET") {
+        return json(getPoiCategoryManagementPayload(app));
+      }
+
+      if (pathname === "/api/categories/label" && method === "PUT") {
+        const payload = await request.json();
+        return json(updatePoiCategoryLabel(app, payload));
       }
 
       if (pathname === "/api/apartments" && method === "POST") {

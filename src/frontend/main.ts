@@ -2,12 +2,15 @@ import "./styles.css";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { state, root } from "./state";
 import { escapeHtml } from "./helpers";
-import { loadBootstrap, loadPoiManagement, render } from "./events";
+import { loadBootstrap, loadCategoryManagement, loadPoiManagement, render } from "./events";
 
 async function boot() {
   await loadBootstrap();
   if (state.activeView === "pois") {
     await loadPoiManagement();
+    render();
+  } else if (state.activeView === "categories") {
+    await loadCategoryManagement();
     render();
   }
 }

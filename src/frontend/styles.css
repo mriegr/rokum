@@ -673,6 +673,203 @@ textarea {
   gap: 14px;
 }
 
+.categories-shell {
+  display: grid;
+  gap: 12px;
+}
+
+.categories-hero {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 4px);
+  background:
+    radial-gradient(circle at top right, rgba(66, 133, 244, 0.14), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 242, 239, 0.94));
+  box-shadow: var(--shadow);
+}
+
+.categories-hero h2 {
+  margin: 6px 0 10px;
+}
+
+.categories-hero p:last-child {
+  margin: 0;
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+.categories-hero-stats,
+.categories-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.categories-hero-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.categories-grid {
+  grid-template-columns: minmax(0, 920px);
+  justify-content: center;
+}
+
+.category-card,
+.category-subcategory-row {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.category-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.category-card-head,
+ .category-subcategory-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.category-card-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.category-title-block {
+  display: grid;
+  gap: 4px;
+}
+
+.category-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.category-head-actions,
+.category-subcategory-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.category-subsection {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.category-subsection.is-collapsed {
+  display: none;
+}
+
+.category-subcategory-list {
+  display: grid;
+  gap: 8px;
+}
+
+.category-subcategory-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(247, 242, 239, 0.75));
+}
+
+.category-subcategory-row p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.category-subcategory-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.category-icon-block {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.category-icon-preview {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(247, 242, 239, 0.9), rgba(255, 255, 255, 0.94));
+}
+
+.category-icon-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #1f3f74;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.category-icon-actions,
+.category-label-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.category-label-form {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(247, 242, 239, 0.5);
+}
+
+.category-label-form label {
+  display: grid;
+  gap: 4px;
+}
+
+.category-label-form input[type="text"] {
+  width: 100%;
+}
+
+.category-count-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.category-count-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .poi-toolbar {
   align-items: center;
 }
@@ -889,6 +1086,10 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .categories-hero {
+    grid-template-columns: 1fr;
+  }
+
   .poi-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -951,6 +1152,8 @@ textarea {
   .panel-heading,
   .mini-card,
   .score-row,
+  .category-card-head,
+  .category-subcategory-head,
   .poi-admin-controls,
   .poi-filter-head,
   .poi-table-header {
@@ -1018,6 +1221,11 @@ textarea {
   }
 
   .poi-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .categories-grid,
+  .categories-hero-stats {
     grid-template-columns: 1fr;
   }
 

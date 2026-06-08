@@ -48,6 +48,7 @@ export type ApartmentPhoto = {
 export type PoiRecord = {
   id: number;
   category: StandardPoiCategory;
+  subcategory: string;
   name: string;
   address: string;
   isActive: boolean;
@@ -56,6 +57,7 @@ export type PoiRecord = {
   source: string;
   externalId: string | null;
   tags: string[];
+  note: string;
 };
 
 export type CustomPoiInput = {
@@ -149,6 +151,43 @@ export type BootstrapPayload = {
   customPois: CustomPoi[];
   settings: WeightSettings;
   mapConfig: MapConfig;
+  poiCategoryLabels: PoiCategoryLabelRecord[];
+};
+
+export type PoiIconRecord = {
+  category: string;
+  subcategory: string;
+  iconPath: string;
+};
+
+export type PoiCategoryLabelRecord = {
+  category: string;
+  subcategory: string;
+  label: string;
+};
+
+export type PoiIconMapping = {
+  icons: PoiIconRecord[];
+};
+
+export type PoiCategorySummary = {
+  category: StandardPoiCategory;
+  label: string;
+  itemCount: number;
+  activeItemCount: number;
+  iconPath: string | null;
+  subcategories: Array<{
+    category: StandardPoiCategory;
+    subcategory: string;
+    label: string;
+    itemCount: number;
+    activeItemCount: number;
+    iconPath: string | null;
+  }>;
+};
+
+export type PoiCategoryManagementPayload = {
+  categories: PoiCategorySummary[];
 };
 
 export type ManagedPoi = {

@@ -1,12 +1,16 @@
-import maplibregl, { type GeoJSONSource, type MapGeoJSONFeature, type Popup } from "maplibre-gl";
+import maplibregl, {
+  type GeoJSONSource,
+  type MapGeoJSONFeature,
+  type Popup,
+} from "maplibre-gl";
 import type { FeatureCollection, LngLatTuple } from "./state";
 import {
   APARTMENT_LAYER_ID,
   APARTMENT_SOURCE_ID,
-  CUSTOM_POI_LAYER_ID,
-  CUSTOM_POI_SOURCE_ID,
   EMPTY_FEATURE_COLLECTION,
   POI_LAYER_ID,
+  POI_SPIDER_LEG_LAYER_ID,
+  POI_SPIDER_LEG_SOURCE_ID,
   POI_SOURCE_ID,
   UBAHN_LAYER_ID,
   UBAHN_SOURCE_ID,
@@ -18,15 +22,19 @@ import {
 import { mapIsAvailable } from "./helpers";
 import {
   apartmentFeatureCollection,
-  customPoiFeatureCollection,
-  nearbyPoiFeatureCollection,
+  combinedPoiFeatureCollection,
+  spiderfyPoiFeatureCollection,
   ubahnRouteFeatureCollection,
   ubahnStationFeatureCollection,
 } from "./mapFeatures";
+import { ICON_MAP } from "./icons";
 
 export let map: maplibregl.Map | null = null;
 export let popup: Popup | null = null;
 export let mapReady = false;
+
+const SPIDERFY_OVERLAP_RADIUS_PX = 14;
+const SPIDERFY_HORIZONTAL_GAP_PX = 22;
 
 export function destroyMap() {
   if (map) {
@@ -114,8 +122,6 @@ export function syncMapSources(options?: { preserveViewport?: boolean }) {
   }
 
   setSourceData(APARTMENT_SOURCE_ID, apartmentFeatureCollection());
-  setSourceData(POI_SOURCE_ID, nearbyPoiFeatureCollection());
-  setSourceData(CUSTOM_POI_SOURCE_ID, customPoiFeatureCollection());
   setSourceData(UBAHN_STATION_SOURCE_ID, ubahnStationFeatureCollection());
   setSourceData(UBAHN_SOURCE_ID, ubahnRouteFeatureCollection());
 
@@ -126,15 +132,40 @@ export function syncMapSources(options?: { preserveViewport?: boolean }) {
     fitMapToPayload();
   }
 
+  syncPoiSources();
+
   resizeMapSoon();
 }
 
-export function showMapPopup(feature: MapGeoJSONFeature, lngLat: maplibregl.LngLat) {
+export function showMapPopup(
+  feature: MapGeoJSONFeature,
+  lngLat: maplibregl.LngLat,
+) {
   popup?.remove();
   popup = new maplibregl.Popup({ closeButton: false, offset: 12 })
     .setLngLat(lngLat)
     .setHTML(String(feature.properties?.popupHtml ?? ""))
     .addTo(map!);
+}
+
+function syncPoiSources() {
+  if (!map) {
+    return;
+  }
+
+  const combinedFeatures = combinedPoiFeatureCollection();
+  const spiderfied = spiderfyPoiFeatureCollection(combinedFeatures, {
+    project: (coordinates) => map!.project(coordinates),
+    unproject: (point) => {
+      const lngLat = map!.unproject([point.x, point.y]);
+      return [lngLat.lng, lngLat.lat];
+    },
+    overlapRadiusPx: SPIDERFY_OVERLAP_RADIUS_PX,
+    horizontalGapPx: SPIDERFY_HORIZONTAL_GAP_PX,
+  });
+
+  setSourceData(POI_SOURCE_ID, spiderfied.points);
+  setSourceData(POI_SPIDER_LEG_SOURCE_ID, spiderfied.legs);
 }
 
 function bindMapInteractions() {
@@ -145,7 +176,6 @@ function bindMapInteractions() {
   for (const layerId of [
     APARTMENT_LAYER_ID,
     POI_LAYER_ID,
-    CUSTOM_POI_LAYER_ID,
     UBAHN_STATION_LAYER_ID,
     UBAHN_LAYER_ID,
   ]) {
@@ -162,6 +192,171 @@ function bindMapInteractions() {
       map?.getCanvas().style.removeProperty("cursor");
     });
   }
+
+  map.on("styleimagemissing", (event) => {
+    if (!map || map.hasImage(event.id)) {
+      return;
+    }
+
+    const fallback = fallbackIconFromImageId(event.id);
+    if (!fallback) {
+      return;
+    }
+
+    map.addImage(event.id, fallback);
+  });
+
+  map.on("zoomend", syncPoiSources);
+}
+
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  r: number,
+) {
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(w - r, 0);
+  ctx.quadraticCurveTo(w, 0, w, r);
+  ctx.lineTo(w, h - r);
+  ctx.quadraticCurveTo(w, h, w - r, h);
+  ctx.lineTo(r, h);
+  ctx.quadraticCurveTo(0, h, 0, h - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.closePath();
+}
+
+function makeIcon(bg: string, text: string, textColor = "#ffffff"): ImageData {
+  const c = document.createElement("canvas");
+  c.width = 24;
+  c.height = 24;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = bg;
+  drawRoundedRect(ctx, 24, 24, 5);
+  ctx.fill();
+  ctx.fillStyle = textColor;
+  ctx.font = "bold 14px Arial, Helvetica, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 12, 12.5);
+  return ctx.getImageData(0, 0, 24, 24);
+}
+
+function titleCaseSlug(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function fallbackIconFromImageId(imageId: string) {
+  if (imageId.startsWith("chain-")) {
+    const label = titleCaseSlug(imageId.slice("chain-".length));
+    return makeIcon("#34495e", label.charAt(0) || "S");
+  }
+
+  if (imageId.startsWith("cat-")) {
+    const category = imageId.slice("cat-".length);
+    switch (category) {
+      case "supermarket":
+        return makeIcon("#e67e22", "M");
+      case "sport_studio":
+        return makeIcon("#2ecc71", "S");
+      case "cafe":
+        return makeIcon("#a0522d", "C");
+      case "park_or_river":
+        return makeIcon("#27ae60", "P");
+      case "ubahn":
+        return makeIcon("#0056b8", "U");
+      default:
+        return makeIcon("#5c6670", titleCaseSlug(category).charAt(0) || "P");
+    }
+  }
+
+  return null;
+}
+
+function loadIcon(url: string): Promise<ImageData> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = 24;
+      c.height = 24;
+      const ctx = c.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, 24, 24);
+      resolve(ctx.getImageData(0, 0, 24, 24));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function registerCategoryIcons() {
+  if (!map) return;
+
+  map.addImage("cat-supermarket", makeIcon("#e67e22", "M"));
+  map.addImage("cat-sport_studio", makeIcon("#2ecc71", "S"));
+  map.addImage("cat-cafe", makeIcon("#a0522d", "C"));
+  map.addImage("cat-park_or_river", makeIcon("#27ae60", "P"));
+  map.addImage("cat-ubahn", makeIcon("#0056b8", "U"));
+}
+
+async function registerChainIcons() {
+  if (!map) return;
+
+  const defaultKeys = [
+    "edeka",
+    "rewe",
+    "lidl",
+    "aldi",
+    "penny",
+    "netto",
+    "kaufland",
+  ];
+  const results = await Promise.allSettled(
+    defaultKeys.map(async (key) => {
+      const url = ICON_MAP[key];
+      if (!url) throw new Error(`No icon for ${key}`);
+      return { name: "chain-" + key, data: await loadIcon(url) };
+    }),
+  );
+
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      map.addImage(result.value.name, result.value.data);
+    }
+  }
+
+  const customUrls = new Map<string, string>();
+  for (const [key, path] of state.managedPoiIcons) {
+    const [cat, sub] = key.split(":");
+    const icoName = sub
+      ? "chain-" + sub.toLowerCase().replace(/\s+/g, "-")
+      : "cat-" + cat;
+    customUrls.set(icoName, path);
+  }
+
+  if (customUrls.size === 0) return;
+
+  const customResults = await Promise.allSettled(
+    Array.from(customUrls).map(async ([name, path]) => {
+      return { name, data: await loadIcon(path) };
+    }),
+  );
+
+  for (const result of customResults) {
+    if (result.status === "fulfilled") {
+      if (map.hasImage(result.value.name)) {
+        map.removeImage(result.value.name);
+      }
+      map.addImage(result.value.name, result.value.data);
+    }
+  }
 }
 
 function addMapSourcesAndLayers() {
@@ -177,7 +372,7 @@ function addMapSourcesAndLayers() {
     type: "geojson",
     data: EMPTY_FEATURE_COLLECTION,
   });
-  map.addSource(CUSTOM_POI_SOURCE_ID, {
+  map.addSource(POI_SPIDER_LEG_SOURCE_ID, {
     type: "geojson",
     data: EMPTY_FEATURE_COLLECTION,
   });
@@ -195,18 +390,7 @@ function addMapSourcesAndLayers() {
   iconCanvas.height = 24;
   const iconCtx = iconCanvas.getContext("2d")!;
   iconCtx.fillStyle = "#0056b8";
-  const r = 5, x = 1, y = 1, w = 22, h = 22;
-  iconCtx.beginPath();
-  iconCtx.moveTo(x + r, y);
-  iconCtx.lineTo(x + w - r, y);
-  iconCtx.quadraticCurveTo(x + w, y, x + w, y + r);
-  iconCtx.lineTo(x + w, y + h - r);
-  iconCtx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  iconCtx.lineTo(x + r, y + h);
-  iconCtx.quadraticCurveTo(x, y + h, x, y + h - r);
-  iconCtx.lineTo(x, y + r);
-  iconCtx.quadraticCurveTo(x, y, x + r, y);
-  iconCtx.closePath();
+  drawRoundedRect(iconCtx, 22, 22, 5);
   iconCtx.fill();
   iconCtx.fillStyle = "#ffffff";
   iconCtx.font = "bold 14px Arial, Helvetica, sans-serif";
@@ -214,6 +398,9 @@ function addMapSourcesAndLayers() {
   iconCtx.textBaseline = "middle";
   iconCtx.fillText("U", 12, 12.5);
   map.addImage("ubahn-station-icon", iconCtx.getImageData(0, 0, 24, 24));
+  map.addImage("custom-poi-icon", makeIcon("#7dc4de", "C", "#25556e"));
+
+  registerCategoryIcons();
 
   map.addLayer({
     id: UBAHN_LAYER_ID,
@@ -237,42 +424,29 @@ function addMapSourcesAndLayers() {
     },
   });
   map.addLayer({
-    id: POI_LAYER_ID,
-    type: "circle",
-    source: POI_SOURCE_ID,
+    id: POI_SPIDER_LEG_LAYER_ID,
+    type: "line",
+    source: POI_SPIDER_LEG_SOURCE_ID,
     paint: {
-      "circle-radius": [
-        "case",
-        ["==", ["get", "category"], "sport_studio"],
-        7,
-        6,
-      ],
-      "circle-color": [
-        "case",
-        ["==", ["get", "category"], "sport_studio"],
-        "#7ad3b0",
-        "#b7d5ea",
-      ],
-      "circle-stroke-color": [
-        "case",
-        ["==", ["get", "category"], "sport_studio"],
-        "#0f6b57",
-        "#275d8a",
-      ],
-      "circle-stroke-width": 2,
-      "circle-opacity": 0.92,
+      "line-color": "#25556e",
+      "line-width": 1.5,
+      "line-opacity": 0.55,
     },
   });
   map.addLayer({
-    id: CUSTOM_POI_LAYER_ID,
-    type: "circle",
-    source: CUSTOM_POI_SOURCE_ID,
-    paint: {
-      "circle-radius": 8,
-      "circle-color": "#7dc4de",
-      "circle-stroke-color": "#25556e",
-      "circle-stroke-width": 2,
-      "circle-opacity": 0.9,
+    id: POI_LAYER_ID,
+    type: "symbol",
+    source: POI_SOURCE_ID,
+    layout: {
+      "icon-image": [
+        "case",
+        ["==", ["get", "kind"], "custom"],
+        "custom-poi-icon",
+        ["get", "icon"],
+      ],
+      "icon-size": 0.75,
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
     },
   });
   map.addLayer({
@@ -289,6 +463,10 @@ function addMapSourcesAndLayers() {
 
   bindMapInteractions();
   mapReady = true;
+
+  registerChainIcons().catch((err) =>
+    console.error("Failed to load chain icons", err),
+  );
 }
 
 export function renderMap(options?: { preserveViewport?: boolean }) {

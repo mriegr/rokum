@@ -14,6 +14,7 @@ It combines:
 - User-managed custom POIs
 - A MapLibre-based map view with proxied Jawg vector resources and transit overlays
 - A POI management screen for enabling/disabling cached and custom POIs
+- A category management screen for editing category/subcategory labels and icon overrides
 
 ## Runtime shape
 
@@ -54,7 +55,7 @@ It returns:
 - weight settings
 - map config
 
-The frontend uses this to initialize most of the application state. The POI management page is loaded separately through `/api/pois`.
+The frontend uses this to initialize most of the application state. It also carries persisted category label overrides so renamed POI categories stay consistent across list, map, and admin views. The POI management page is loaded separately through `/api/pois`, and category management is loaded separately through `/api/categories`.
 
 ### Apartment lifecycle
 
@@ -83,6 +84,8 @@ Important consequence: apartment rows store both normalized apartment data and a
 
 The map view should treat this payload as the source of truth for the focused apartment.
 
+POI overlap handling is client-side. The map does not cluster POIs. Instead, `map.ts` computes a screen-space spiderfy layout for only the POIs that would visually overlap at the current zoom, then draws thin connector legs from the displaced icon back to the original coordinate.
+
 ### POI management
 
 `/api/pois` returns all managed POIs as a flattened `ManagedPoi[]` that merges:
@@ -93,6 +96,18 @@ The map view should treat this payload as the source of truth for the focused ap
 `/api/pois/status` updates active state in bulk and then rescoring is triggered for all apartments.
 
 Important consequence: toggling POI activation is not a cheap UI-only setting. It changes scoring inputs and therefore intentionally forces a full rescore pass.
+
+### Category management
+
+`/api/categories` returns the editable standard-category structure used by the Categories page:
+
+- top-level standard categories
+- stored subcategories discovered from `pois.subcategory`
+- item counts and active-item counts
+- current icon overrides
+- persisted label overrides
+
+Category labels are stored separately from the POI records themselves, so editing a display name does not rewrite cached POI rows or external-source category IDs.
 
 ## Persistence model
 
@@ -107,6 +122,8 @@ Main tables:
 - `apartment_poi_scores`: persisted per-apartment standard POI score details
 - `apartment_custom_poi_scores`: persisted per-apartment custom POI score details
 - `settings`: currently used for weights JSON
+- `poi_icons`: uploaded category/subcategory icon overrides
+- `poi_category_labels`: user-defined display labels for categories and subcategories
 
 Schema evolution is currently lightweight and inline. Example: `createDatabase()` adds `tags_json` and `is_active` to `pois` if missing. There is no formal migration framework yet.
 
@@ -247,6 +264,7 @@ Main views:
 - list view
 - map view
 - POI management view
+- category management view
 
 The map has special handling:
 

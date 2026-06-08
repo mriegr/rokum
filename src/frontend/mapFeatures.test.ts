@@ -2,10 +2,12 @@ import { beforeAll, expect, test } from "bun:test";
 
 let ubahnStationFeatureCollection: (typeof import("./mapFeatures"))["ubahnStationFeatureCollection"];
 let ubahnRouteFeatureCollection: (typeof import("./mapFeatures"))["ubahnRouteFeatureCollection"];
+let combinedPoiFeatureCollection: (typeof import("./mapFeatures"))["combinedPoiFeatureCollection"];
 let nearbyPoiFeatureCollection: (typeof import("./mapFeatures"))["nearbyPoiFeatureCollection"];
 let apartmentFeatureCollection: (typeof import("./mapFeatures"))["apartmentFeatureCollection"];
 let customPoiFeatureCollection: (typeof import("./mapFeatures"))["customPoiFeatureCollection"];
-let state: { showUbahnRoutes: boolean; mapPayload: Record<string, unknown> | null };
+let spiderfyPoiFeatureCollection: (typeof import("./mapFeatures"))["spiderfyPoiFeatureCollection"];
+let state: any;
 
 beforeAll(async () => {
   globalThis.document = { querySelector: () => ({}) as never, createElement: () => ({}) as never, documentElement: {} as never } as never;
@@ -16,9 +18,11 @@ beforeAll(async () => {
 
   ubahnStationFeatureCollection = mapFeatures.ubahnStationFeatureCollection;
   ubahnRouteFeatureCollection = mapFeatures.ubahnRouteFeatureCollection;
+  combinedPoiFeatureCollection = mapFeatures.combinedPoiFeatureCollection;
   nearbyPoiFeatureCollection = mapFeatures.nearbyPoiFeatureCollection;
   apartmentFeatureCollection = mapFeatures.apartmentFeatureCollection;
   customPoiFeatureCollection = mapFeatures.customPoiFeatureCollection;
+  spiderfyPoiFeatureCollection = mapFeatures.spiderfyPoiFeatureCollection;
   state = stateMod.state;
 });
 
@@ -162,6 +166,124 @@ test("nearbyPoiFeatureCollection returns empty when no payload", () => {
   state.mapPayload = null;
   const result = nearbyPoiFeatureCollection();
   expect(result.features).toHaveLength(0);
+});
+
+test("combinedPoiFeatureCollection combines standard and custom pois", () => {
+  state.visiblePoiCategories = {
+    supermarket: true,
+    sport_studio: true,
+    ubahn: true,
+    cafe: true,
+    park_or_river: true,
+  };
+  state.selectedSportTags = [];
+  state.mapPayload = {
+    nearbyPois: [
+      {
+        id: 1,
+        category: "supermarket",
+        subcategory: "edeka",
+        name: "Edeka Sendling",
+        address: "Street 1",
+        tags: [],
+        latitude: 48.13,
+        longitude: 11.57,
+      },
+    ],
+    customPoiScores: [
+      {
+        customPoiId: 7,
+        name: "Office",
+        longitude: 11.58,
+        latitude: 48.14,
+        walking: { durationMinutes: 12 },
+        transit: { durationMinutes: 8 },
+      },
+    ],
+  } as never;
+
+  const result = combinedPoiFeatureCollection();
+  expect(result.features).toHaveLength(2);
+  expect(result.features[0]?.id).toBe("poi:1");
+  expect(result.features[0]?.properties?.kind).toBe("standard");
+  expect(result.features[1]?.id).toBe("custom:7");
+  expect(result.features[1]?.properties?.kind).toBe("custom");
+  expect(result.features[1]?.properties?.icon).toBe("custom-poi-icon");
+});
+
+test("spiderfyPoiFeatureCollection leaves separate points untouched", () => {
+  const result = spiderfyPoiFeatureCollection(
+    {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          id: "poi:1",
+          geometry: { type: "Point", coordinates: [11.57, 48.13] },
+          properties: {},
+        },
+        {
+          type: "Feature",
+          id: "poi:2",
+          geometry: { type: "Point", coordinates: [11.60, 48.14] },
+          properties: {},
+        },
+      ],
+    },
+    {
+      project: ([x, y]) => ({ x, y }),
+      unproject: ({ x, y }) => [x, y],
+      overlapRadiusPx: 0.01,
+      horizontalGapPx: 10,
+    },
+  );
+
+  expect(result.points.features).toHaveLength(2);
+  expect(result.legs.features).toHaveLength(0);
+  expect(result.points.features[0]?.geometry.coordinates).toEqual([11.57, 48.13]);
+  expect(result.points.features[1]?.geometry.coordinates).toEqual([11.60, 48.14]);
+});
+
+test("spiderfyPoiFeatureCollection spreads overlapping points into a horizontal row", () => {
+  const result = spiderfyPoiFeatureCollection(
+    {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          id: "poi:1",
+          geometry: { type: "Point", coordinates: [0, 0] },
+          properties: {},
+        },
+        {
+          type: "Feature",
+          id: "poi:2",
+          geometry: { type: "Point", coordinates: [0.002, 0] },
+          properties: {},
+        },
+        {
+          type: "Feature",
+          id: "poi:3",
+          geometry: { type: "Point", coordinates: [0.004, 0] },
+          properties: {},
+        },
+      ],
+    },
+    {
+      project: ([x, y]) => ({ x: x * 1000, y: y * 1000 }),
+      unproject: ({ x, y }) => [x / 1000, y / 1000],
+      overlapRadiusPx: 5,
+      horizontalGapPx: 20,
+    },
+  );
+
+  expect(result.points.features).toHaveLength(3);
+  expect(result.legs.features).toHaveLength(3);
+  expect(result.points.features.map((feature) => feature.geometry.coordinates)).toEqual([
+    [-0.018, 0],
+    [0.002, 0],
+    [0.022, 0],
+  ]);
 });
 
 test("customPoiFeatureCollection returns empty when no payload", () => {
