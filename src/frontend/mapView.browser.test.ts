@@ -134,6 +134,10 @@ beforeAll(async () => {
         return Response.json(getBootstrapPayload(app as any));
       }
 
+      if (pathname === "/api/poi-icons") {
+        return Response.json({ icons: [] });
+      }
+
       if (pathname === "/api/map/style.json") {
         return serveMapStyle(app as any, request.url);
       }

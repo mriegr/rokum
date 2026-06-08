@@ -24,7 +24,7 @@ import {
   scoreTone,
 } from "./helpers";
 import { managedPoiKey, summarizePoiCategories, summarizeSportTags } from "./poiFilters";
-import { ICON_MAP } from "./icons";
+
 
 export function renderTopbar() {
   return `
@@ -613,8 +613,7 @@ export function renderPoisView() {
 }
 
 function renderCategoryIconControls(category: string, subcategory: string, label: string, iconPath: string | null) {
-  const defaultIcon = subcategory ? ICON_MAP[subcategory.toLowerCase()] : null;
-  const iconSrc = iconPath ?? defaultIcon;
+  const iconSrc = iconPath;
   const preview = iconSrc
     ? `<img
           src="${escapeHtml(iconSrc)}"

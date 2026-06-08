@@ -244,7 +244,7 @@ export function spiderfyPoiFeatureCollection(
 }
 
 function poiIcoKey(category: string, subcategory: string): string {
-  if (category === "supermarket" && subcategory) {
+  if (subcategory && state.managedPoiIcons.has(`${category}:${subcategory}`)) {
     return "chain-" + subcategory.toLowerCase().replace(/\s+/g, "-");
   }
   return "cat-" + category;

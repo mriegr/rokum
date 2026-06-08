@@ -27,7 +27,7 @@ import {
   ubahnRouteFeatureCollection,
   ubahnStationFeatureCollection,
 } from "./mapFeatures";
-import { ICON_MAP } from "./icons";
+
 
 export let map: maplibregl.Map | null = null;
 export let popup: Popup | null = null;
@@ -309,29 +309,6 @@ function registerCategoryIcons() {
 async function registerChainIcons() {
   if (!map) return;
 
-  const defaultKeys = [
-    "edeka",
-    "rewe",
-    "lidl",
-    "aldi",
-    "penny",
-    "netto",
-    "kaufland",
-  ];
-  const results = await Promise.allSettled(
-    defaultKeys.map(async (key) => {
-      const url = ICON_MAP[key];
-      if (!url) throw new Error(`No icon for ${key}`);
-      return { name: "chain-" + key, data: await loadIcon(url) };
-    }),
-  );
-
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      map.addImage(result.value.name, result.value.data);
-    }
-  }
-
   const customUrls = new Map<string, string>();
   for (const [key, path] of state.managedPoiIcons) {
     const [cat, sub] = key.split(":");
@@ -352,9 +329,10 @@ async function registerChainIcons() {
   for (const result of customResults) {
     if (result.status === "fulfilled") {
       if (map.hasImage(result.value.name)) {
-        map.removeImage(result.value.name);
+        map.updateImage(result.value.name, result.value.data);
+      } else {
+        map.addImage(result.value.name, result.value.data);
       }
-      map.addImage(result.value.name, result.value.data);
     }
   }
 }
