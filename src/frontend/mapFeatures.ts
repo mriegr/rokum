@@ -77,7 +77,7 @@ export function nearbyPoiFeatureCollection() {
       },
       properties: {
         category: poi.category,
-        icon: poiIcoKey(poi.category, poi.subcategory),
+        icon: poiIcoKey(poi.category, poi.subcategory, poi.tags),
         popupHtml: popupHtml(poi.name, [
           standardPoiLabel(poi.category),
           poi.address || "Address unavailable",
@@ -106,7 +106,7 @@ export function combinedPoiFeatureCollection() {
         properties: {
           kind: "standard",
           category: poi.category,
-          icon: poiIcoKey(poi.category, poi.subcategory),
+          icon: poiIcoKey(poi.category, poi.subcategory, poi.tags),
           popupHtml: popupHtml(poi.name, [
             standardPoiLabel(poi.category),
             poi.address || "Address unavailable",
@@ -267,9 +267,10 @@ export function spiderfyPoiFeatureCollection(
   };
 }
 
-function poiIcoKey(category: string, subcategory: string): string {
-  if (subcategory && state.managedPoiIcons.has(`${category}:${subcategory}`)) {
-    return "chain-" + subcategory.toLowerCase().replace(/\s+/g, "-");
+function poiIcoKey(category: string, subcategory: string, tags?: string[]): string {
+  const sub = subcategory || (tags?.length ? tags[0] : "");
+  if (sub && state.managedPoiIcons.has(`${category}:${sub}`)) {
+    return "chain-" + sub.toLowerCase().replace(/\s+/g, "-");
   }
   return "cat-" + category;
 }

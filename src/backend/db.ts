@@ -641,6 +641,31 @@ export function listAllPois(database: SqlDatabase) {
   return (database.query("SELECT * FROM pois").all() as Record<string, unknown>[]).map(mapPoi);
 }
 
+export function getPoiById(database: SqlDatabase, poiId: number) {
+  const row = database.query("SELECT * FROM pois WHERE id = ?1").get(poiId) as Record<string, unknown> | null;
+  return row ? mapPoi(row) : null;
+}
+
+export function updatePoiRecord(
+  database: SqlDatabase,
+  poiId: number,
+  input: Pick<PoiRecord, "category" | "subcategory" | "name" | "address" | "note">,
+) {
+  database
+    .query(
+      `
+        UPDATE pois
+        SET category = ?2, subcategory = ?3, name = ?4, address = ?5, note = ?6
+        WHERE id = ?1
+      `,
+    )
+    .run(poiId, input.category, input.subcategory, input.name, input.address, input.note);
+}
+
+export function updatePoiCoordinates(database: SqlDatabase, poiId: number, latitude: number, longitude: number) {
+  database.query("UPDATE pois SET latitude = ?2, longitude = ?3 WHERE id = ?1").run(poiId, latitude, longitude);
+}
+
 export function listActivePoisByCategory(database: SqlDatabase, category: string) {
   return (database
     .query("SELECT * FROM pois WHERE category = ?1 AND is_active = 1")

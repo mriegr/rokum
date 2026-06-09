@@ -23,7 +23,13 @@ import {
   mapIsAvailable,
   scoreTone,
 } from "./helpers";
-import { managedPoiKey, summarizePoiCategories, summarizeSportTags } from "./poiFilters";
+import {
+  existingPoiSubcategories,
+  managedPoiKey,
+  managedPoiSubcategories,
+  summarizePoiCategories,
+  summarizePoiSubcategories,
+} from "./poiFilters";
 
 
 export function renderTopbar() {
@@ -335,31 +341,16 @@ export function renderListView() {
 export function renderPoiStats() {
   const activeCount = state.pois.filter((poi) => poi.isActive).length;
   const inactiveCount = state.pois.length - activeCount;
-  const standardCount = state.pois.filter((poi) => poi.kind === "standard").length;
-  const customCount = state.pois.length - standardCount;
+  const categoryCount = summarizePoiCategories(state.pois).size;
+  const subcategoryCount = summarizePoiSubcategories(state.pois).size;
 
   return `
-    <div class="poi-stat-grid">
-      <article class="poi-stat-card">
-        <span class="eyebrow">Total</span>
-        <strong>${state.pois.length}</strong>
-        <p>All cached and custom POIs</p>
-      </article>
-      <article class="poi-stat-card">
-        <span class="eyebrow">Active</span>
-        <strong>${activeCount}</strong>
-        <p>${inactiveCount} currently excluded</p>
-      </article>
-      <article class="poi-stat-card">
-        <span class="eyebrow">Standard</span>
-        <strong>${standardCount}</strong>
-        <p>Map and routing candidates</p>
-      </article>
-      <article class="poi-stat-card">
-        <span class="eyebrow">Custom</span>
-        <strong>${customCount}</strong>
-        <p>User-managed scoring destinations</p>
-      </article>
+    <div class="poi-overview-strip" aria-label="POI overview">
+      <div><strong>${state.pois.length}</strong><span>total POIs</span></div>
+      <div><strong>${activeCount}</strong><span>active</span></div>
+      <div><strong>${inactiveCount}</strong><span>disabled</span></div>
+      <div><strong>${categoryCount}</strong><span>categories</span></div>
+      <div><strong>${subcategoryCount}</strong><span>subcategories</span></div>
     </div>
   `;
 }
@@ -369,13 +360,24 @@ export function renderPoiToolbar() {
   const selection = visibleManagedPoiSelectionState();
 
   return `
-    <div class="toolbar poi-toolbar">
-      <div>
-        <p class="toolbar-label">POI management</p>
-        <strong>${pois.length}</strong>
-        <span class="toolbar-meta">visible after current filters</span>
+    <div class="poi-inventory-head">
+      <div class="poi-title-block">
+        <p class="eyebrow">Place inventory</p>
+        <h2>Points of interest</h2>
+        <p>Review every scoring destination, its classification, source, notes, and availability.</p>
       </div>
-      <div class="bulk-actions">
+      <div class="poi-match-count" aria-live="polite">
+        <strong>${pois.length}</strong>
+        <span>of ${state.pois.length} matched</span>
+      </div>
+      <div class="bulk-actions poi-bulk-actions">
+        <button
+          class="ghost-button"
+          data-action="edit-selected-poi"
+          ${selection.selected === 1 ? "" : "disabled"}
+        >
+          Edit selected
+        </button>
         <button
           class="ghost-button"
           data-action="bulk-poi-status"
@@ -415,9 +417,10 @@ export function renderPoiToolbar() {
 
 export function renderPoiCategoryFilters() {
   const summaries = summarizePoiCategories(state.pois);
+  const subcategorySummaries = Array.from(summarizePoiSubcategories(state.pois).entries());
 
   return `
-    <div class="poi-filter-section">
+    <div class="poi-filter-section poi-category-filter-section">
       <div class="poi-filter-head">
         <strong>Categories</strong>
         <div class="mini-actions">
@@ -425,20 +428,47 @@ export function renderPoiCategoryFilters() {
           <button type="button" class="ghost-button compact-button" data-action="clear-poi-categories">None</button>
         </div>
       </div>
-      <div class="toggle-grid">
+      <div class="poi-facet-list">
         ${MANAGED_POI_CATEGORY_ORDER.map((category) => {
           const summary = summaries.get(category) ?? { total: 0, active: 0 };
+          const subcategories = subcategorySummaries
+            .filter(([, item]) => item.category === category)
+            .sort(([, left], [, right]) => left.label.localeCompare(right.label));
           return `
-            <label class="filter-toggle">
-              <input
-                type="checkbox"
-                data-action="toggle-managed-poi-category"
-                data-category="${category}"
-                ${state.visibleManagedPoiCategories[category] ? "checked" : ""}
-                ${summary.total ? "" : "disabled"}
-              />
-              <span>${managedPoiCategoryLabel(category)} (${summary.active}/${summary.total})</span>
-            </label>
+            <section class="poi-facet-group">
+              <label class="poi-facet-parent">
+                <input
+                  type="checkbox"
+                  data-action="toggle-managed-poi-category"
+                  data-category="${category}"
+                  ${state.visibleManagedPoiCategories[category] ? "checked" : ""}
+                  ${summary.total ? "" : "disabled"}
+                />
+                <span><strong>${managedPoiCategoryLabel(category)}</strong><small>${summary.active} active / ${summary.total}</small></span>
+              </label>
+              ${
+                subcategories.length
+                  ? `<div class="poi-subcategory-list">${subcategories
+                      .map(([key, item]) => `
+                        <label>
+                          <input
+                            type="checkbox"
+                            data-action="toggle-managed-poi-subcategory"
+                            data-key="${escapeHtml(key)}"
+                            ${state.selectedManagedSubcategories.includes(key) ? "checked" : ""}
+                          />
+                          <span>${
+                            item.label
+                              ? escapeHtml(categoryDisplayLabel(category, item.label, item.label))
+                              : "No subcategory"
+                          }</span>
+                          <small>${item.total}</small>
+                        </label>
+                      `)
+                      .join("")}</div>`
+                  : ""
+              }
+            </section>
           `;
         }).join("")}
       </div>
@@ -446,76 +476,59 @@ export function renderPoiCategoryFilters() {
   `;
 }
 
-export function renderPoiSportTagFilters() {
-  const tagSummaries = Array.from(summarizeSportTags(state.pois).entries()).sort(([left], [right]) =>
-    left.localeCompare(right),
-  );
-
-  if (tagSummaries.length === 0) {
-    return "";
-  }
-
-  return `
-    <div class="poi-filter-section">
-      <div class="poi-filter-head">
-        <strong>Sport studio subcategories</strong>
-        <div class="mini-actions">
-          <button type="button" class="ghost-button compact-button" data-action="select-all-managed-sport-tags">All</button>
-        </div>
-      </div>
-      <div class="tag-grid">
-        ${tagSummaries
-          .map(([tag, summary]) => {
-            const isActive = state.selectedManagedSportTags.includes(tag);
-            return `
-              <button
-                type="button"
-                class="tag-chip ${isActive ? "is-active" : ""}"
-                data-action="toggle-managed-sport-tag"
-                data-tag="${escapeHtml(tag)}"
-              >
-                ${escapeHtml(tag)} (${summary.active}/${summary.total})
-              </button>
-            `;
-          })
-          .join("")}
-      </div>
-    </div>
-  `;
-}
-
 export function renderPoiControls() {
+  const activeFilters =
+    Number(state.poiStatusFilter !== "all") +
+    state.selectedManagedSubcategories.length +
+    MANAGED_POI_CATEGORY_ORDER.filter((category) => !state.visibleManagedPoiCategories[category]).length;
+
   return `
-    <div class="poi-admin-controls">
-      <label class="poi-search">
-        Search POIs
+    <div class="poi-command-bar">
+      <label class="poi-search" aria-label="Search POIs">
+        <span class="poi-search-icon" aria-hidden="true"></span>
         <input
           id="poi-search"
           type="search"
           value="${escapeHtml(state.poiSearch)}"
-          placeholder="Name, address, category, source or tag"
+          placeholder="Search name, address, category, subcategory, note or source"
           autocomplete="off"
         />
       </label>
-      <label class="sorter">
-        Status
-        <select id="poi-status-filter">
-          <option value="all" ${state.poiStatusFilter === "all" ? "selected" : ""}>All</option>
-          <option value="active" ${state.poiStatusFilter === "active" ? "selected" : ""}>Active only</option>
-          <option value="inactive" ${state.poiStatusFilter === "inactive" ? "selected" : ""}>Inactive only</option>
-        </select>
-      </label>
-      <button type="button" class="ghost-button" data-action="reset-poi-filters">Clear filters</button>
+      <button type="button" class="poi-filter-trigger ${activeFilters ? "has-filters" : ""}" data-action="toggle-poi-filters" aria-expanded="${state.poiFiltersOpen}">
+        <span>Filters</span>
+        ${activeFilters ? `<strong>${activeFilters}</strong>` : ""}
+      </button>
     </div>
-    <div class="poi-filter-grid">
-      ${renderPoiCategoryFilters()}
-      ${renderPoiSportTagFilters()}
-    </div>
+    <div class="poi-filter-backdrop ${state.poiFiltersOpen ? "is-open" : ""}" data-action="close-poi-filters"></div>
+    <aside class="poi-filter-drawer ${state.poiFiltersOpen ? "is-open" : ""}" aria-hidden="${!state.poiFiltersOpen}">
+      <div class="poi-filter-drawer-head">
+        <div><p class="eyebrow">Refine inventory</p><h3>Filters</h3></div>
+        <button type="button" class="icon-button" data-action="close-poi-filters" aria-label="Close filters">&times;</button>
+      </div>
+      <div class="poi-filter-drawer-body">
+        <div class="poi-filter-section">
+          <div class="poi-filter-head"><strong>Active status</strong></div>
+          <label class="sorter poi-status-select">
+            <select id="poi-status-filter">
+              <option value="all" ${state.poiStatusFilter === "all" ? "selected" : ""}>All statuses</option>
+              <option value="active" ${state.poiStatusFilter === "active" ? "selected" : ""}>Active only</option>
+              <option value="inactive" ${state.poiStatusFilter === "inactive" ? "selected" : ""}>Disabled only</option>
+            </select>
+          </label>
+        </div>
+        ${renderPoiCategoryFilters()}
+      </div>
+      <div class="poi-filter-drawer-foot">
+        <button type="button" class="ghost-button" data-action="reset-poi-filters">Reset all</button>
+        <button type="button" class="primary-button" data-action="close-poi-filters">Show ${filteredManagedPois().length} POIs</button>
+      </div>
+    </aside>
   `;
 }
 
 export function renderPoiRow(poi: ManagedPoi, selectedKeys: Set<string>) {
   const key = managedPoiKey(poi);
+  const subcategories = managedPoiSubcategories(poi);
   return `
     <article class="poi-admin-row ${poi.isActive ? "" : "is-inactive"}">
       <label class="poi-select-cell">
@@ -527,34 +540,31 @@ export function renderPoiRow(poi: ManagedPoi, selectedKeys: Set<string>) {
         />
       </label>
       <div class="poi-main-cell">
-        <div class="poi-row-head">
-          <strong>${escapeHtml(poi.name)}</strong>
-          <div class="poi-badges">
-            <span class="pill-badge">${escapeHtml(poi.categoryLabel)}</span>
-            <span class="pill-badge ${poi.kind === "custom" ? "custom" : ""}">${
-              poi.kind === "custom" ? "Custom" : "Standard"
-            }</span>
-            <span class="status-dot ${poi.isActive ? "active" : "inactive"}">${
-              poi.isActive ? "Active" : "Inactive"
-            }</span>
-          </div>
-        </div>
+        <strong>${escapeHtml(poi.name)}</strong>
         <p>${escapeHtml(poi.address || "Address unavailable")}</p>
-        ${
-          poi.tags.length
-            ? `<div class="poi-tags">${poi.tags
-                .slice(0, 4)
-                .map((tag) => `<span class="mini-tag">${escapeHtml(tag)}</span>`)
-                .join("")}</div>`
-            : ""
-        }
-        ${poi.notes ? `<p class="poi-notes">${escapeHtml(poi.notes)}</p>` : ""}
       </div>
-      <div class="poi-meta-cell">
-        <p>${escapeHtml(poi.source?.join(", ") ?? "n/a")}</p>
-        <p>${poi.latitude !== null && poi.longitude !== null ? `${poi.latitude.toFixed(5)}, ${poi.longitude.toFixed(5)}` : "No coordinates"}</p>
+      <div class="poi-taxonomy-cell">
+        <span class="pill-badge ${poi.kind === "custom" ? "custom" : ""}">${escapeHtml(poi.categoryLabel)}</span>
+        ${subcategories.length
+          ? `<div class="poi-subcategory-chips">${subcategories.map((value) => `<span>${escapeHtml(categoryDisplayLabel(poi.category, value, value))}</span>`).join("")}</div>`
+          : `<span class="poi-empty-value">No subcategory</span>`}
+      </div>
+      <div class="poi-notes-cell">
+        ${poi.notes ? `<p>${escapeHtml(poi.notes)}</p>` : `<span class="poi-empty-value">No notes</span>`}
+      </div>
+      <div class="poi-source-cell">
+        <strong>${escapeHtml(poi.source?.join(", ") ?? "Unknown")}</strong>
+        <span>${poi.kind === "custom" ? "User supplied" : "Imported source"}</span>
       </div>
       <div class="poi-actions-cell">
+        <span class="status-dot ${poi.isActive ? "active" : "inactive"}">${poi.isActive ? "Active" : "Disabled"}</span>
+        <button
+          class="ghost-button compact-button"
+          data-action="edit-managed-poi"
+          data-key="${key}"
+        >
+          Edit
+        </button>
         <button
           class="ghost-button compact-button ${poi.isActive ? "danger" : ""}"
           data-action="set-single-poi-status"
@@ -568,13 +578,61 @@ export function renderPoiRow(poi: ManagedPoi, selectedKeys: Set<string>) {
   `;
 }
 
+export function renderPoiEditor() {
+  if (!state.editingManagedPoiKey) return "";
+  const poi = state.pois.find((item) => managedPoiKey(item) === state.editingManagedPoiKey);
+  if (!poi) return "";
+  const subcategories = existingPoiSubcategories(state.pois, poi.category);
+  if (poi.subcategory && !subcategories.includes(poi.subcategory)) subcategories.push(poi.subcategory);
+
+  return `
+    <div class="poi-editor-backdrop" data-action="close-poi-editor"></div>
+    <aside class="poi-editor" aria-label="Edit ${escapeHtml(poi.name)}">
+      <div class="poi-editor-head">
+        <div><p class="eyebrow">Edit POI</p><h3>${escapeHtml(poi.name)}</h3></div>
+        <button type="button" class="icon-button" data-action="close-poi-editor" aria-label="Close editor">&times;</button>
+      </div>
+      <form id="poi-editor-form" class="poi-editor-form">
+        <input type="hidden" name="key" value="${escapeHtml(managedPoiKey(poi))}" />
+        <label>Name<input name="name" required value="${escapeHtml(poi.name)}" /></label>
+        <label>Address<input name="address" required value="${escapeHtml(poi.address)}" /></label>
+        <label>Notes<textarea name="notes" rows="4">${escapeHtml(poi.notes)}</textarea></label>
+        <label>Category
+          <select id="poi-editor-category" name="category" ${poi.kind === "custom" ? "disabled" : ""}>
+            ${MANAGED_POI_CATEGORY_ORDER.map((category) => `
+              <option value="${category}" ${poi.category === category ? "selected" : ""} ${category === "custom" && poi.kind !== "custom" ? "disabled" : ""}>
+                ${escapeHtml(managedPoiCategoryLabel(category))}
+              </option>
+            `).join("")}
+          </select>
+        </label>
+        <label>Subcategory
+          <select id="poi-editor-subcategory" name="subcategory" ${poi.kind === "custom" ? "disabled" : ""}>
+            <option value="" ${poi.subcategory ? "" : "selected"}>No subcategory</option>
+            ${subcategories.map((subcategory) => `
+              <option value="${escapeHtml(subcategory)}" ${poi.subcategory === subcategory ? "selected" : ""}>
+                ${escapeHtml(categoryDisplayLabel(poi.category, subcategory, subcategory))}
+              </option>
+            `).join("")}
+          </select>
+        </label>
+        <p class="poi-editor-hint">${poi.kind === "custom" ? "Custom POIs keep the Custom category." : "Changing category or address updates scoring inputs."}</p>
+        <div class="poi-editor-actions">
+          <button type="button" class="ghost-button" data-action="close-poi-editor">Cancel</button>
+          <button type="submit" class="primary-button">Save changes</button>
+        </div>
+      </form>
+    </aside>
+  `;
+}
+
 export function renderPoiTable() {
   const pois = filteredManagedPois();
   const selection = visibleManagedPoiSelectionState();
   const selectedKeys = new Set(state.selectedManagedPoiKeys);
 
   return `
-    <div class="poi-table-header">
+    <div class="poi-selection-bar">
       <label class="select-all-toggle">
         <input
           id="poi-select-all"
@@ -584,7 +642,10 @@ export function renderPoiTable() {
         />
         <span>Select visible</span>
       </label>
-      <p>${selection.selected} selected · ${selection.total} visible</p>
+      <p>${selection.selected} selected</p>
+    </div>
+    <div class="poi-column-head" aria-hidden="true">
+      <span></span><span>POI and address</span><span>Category / subcategory</span><span>Notes</span><span>Source</span><span>Status</span>
     </div>
     <div class="poi-table">
       ${
@@ -601,10 +662,11 @@ export function renderPoisView() {
     <section class="content-shell poi-admin-shell">
       <div id="poi-toolbar-region">${renderPoiToolbar()}</div>
       <div id="poi-stats-region">${renderPoiStats()}</div>
-      <section class="poi-admin-panel">
+      <section class="poi-admin-panel poi-inventory-panel">
         <div id="poi-controls-region">${renderPoiControls()}</div>
         <div id="poi-table-region">${renderPoiTable()}</div>
       </section>
+      ${renderPoiEditor()}
     </section>
   `;
 }

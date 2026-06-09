@@ -319,7 +319,7 @@ function registerCategoryIcons() {
   map.addImage("cat-sport_studio", makeIcon("#2ecc71", "S"));
 }
 
-async function registerChainIcons() {
+export async function registerChainIcons() {
   if (!map) return;
 
   const customUrls = new Map<string, string>();

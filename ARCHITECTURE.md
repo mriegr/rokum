@@ -93,6 +93,10 @@ POI overlap handling is client-side. The map does not cluster POIs. Instead, `ma
 - standard POIs from `pois`
 - custom POIs from `custom_pois`
 
+Standard entries preserve their stored `subcategory` alongside tags, notes, source, and active state. The POI page renders those fields in a dense inventory and filters the already-loaded payload locally by search text, category, subcategory (including a per-category "No subcategory" option), and status. The filter UI is a toggleable right-side drawer; opening or changing it does not reload `/api/pois`.
+
+`PUT /api/pois/:kind/:id` edits a managed POI. Standard POIs can change name, address, notes, standard category, and subcategory. The editor restricts subcategory selection to existing values for the selected category, plus "No subcategory", and refreshes that list when category changes. Custom POIs can change name, address, and notes but retain their Custom category. Address changes are geocoded when possible, existing coordinates are preserved on geocoding failure, and every successful edit triggers a full apartment rescore.
+
 `/api/pois/status` updates active state in bulk and then rescoring is triggered for all apartments.
 
 Important consequence: toggling POI activation is not a cheap UI-only setting. It changes scoring inputs and therefore intentionally forces a full rescore pass.
@@ -336,9 +340,9 @@ Bulk status updates rely on `kind` plus `id` to route updates to the right table
 
 Preserve it when changing POI flows.
 
-### Sport studio tags are multi-purpose
+### POI subcategories are multi-purpose
 
-`tags_json` for sport studios is used for:
+Stored `subcategory` values and `tags_json` for sport studios are used for:
 
 - POI admin subcategory filters
 - map sidebar sport type filters

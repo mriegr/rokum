@@ -4,6 +4,7 @@ import type { PoiIconMapping } from "../shared/types";
 import { state, root } from "./state";
 import { escapeHtml, requestJson } from "./helpers";
 import { loadBootstrap, loadCategoryManagement, loadPoiManagement, render } from "./events";
+import { mapReady, registerChainIcons, syncMapSources } from "./map";
 
 async function boot() {
   await loadBootstrap();
@@ -23,6 +24,10 @@ async function boot() {
       iconMap.set(`${icon.category}:${icon.subcategory}`, icon.iconPath);
     }
     state.managedPoiIcons = iconMap;
+    if (mapReady) {
+      await registerChainIcons();
+      syncMapSources({ preserveViewport: true });
+    }
   }
 }
 

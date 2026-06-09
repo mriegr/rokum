@@ -6,11 +6,13 @@ import { createDatabase } from "./db";
 import {
   getBootstrapPayload,
   getPoiCategoryManagementPayload,
+  getPoiManagementPayload,
   serveUploadFile,
   serveMapStyle,
   serveMapTile,
   searchMapAddressSuggestions,
   updatePoiCategoryLabel,
+  updateManagedPoi,
 } from "./server";
 import type { AppConfig } from "../shared/types";
 
@@ -284,4 +286,89 @@ test("category management payload merges labels, counts, and subcategory icons",
       iconPath: "/uploads/icons/edeka.png",
     },
   ]);
+});
+
+test("POI management payload preserves stored subcategories", () => {
+  const config = createAppConfig();
+  databasePaths.push(config.databasePath);
+  const database = createDatabase(config);
+  const app = { config, database } as any;
+
+  database
+    .query(
+      `
+        INSERT INTO pois (
+          category, subcategory, name, address, is_active, latitude, longitude, source, external_id, tags_json, note, created_at
+        ) VALUES ('supermarket', 'edeka', 'Edeka One', 'Street 2', 1, 48.2, 11.6, '["overpass"]', NULL, '[]', '', ?1)
+      `,
+    )
+    .run(new Date().toISOString());
+
+  expect(getPoiManagementPayload(app).pois[0]).toMatchObject({
+    category: "supermarket",
+    subcategory: "edeka",
+    name: "Edeka One",
+  });
+});
+
+test("managed POI updates standard metadata and category", async () => {
+  const config = createAppConfig();
+  databasePaths.push(config.databasePath);
+  const database = createDatabase(config);
+  const app = { config, database } as any;
+  const result = database
+    .query(
+      `INSERT INTO pois (
+        category, subcategory, name, address, is_active, latitude, longitude, source, external_id, tags_json, note, created_at
+      ) VALUES ('supermarket', 'edeka', 'Old name', 'Same address', 1, 48.2, 11.6, '["overpass"]', NULL, '[]', '', ?1)`,
+    )
+    .run(new Date().toISOString());
+
+  const updated = await updateManagedPoi(app, "standard", Number(result.lastInsertRowid), {
+    name: "New name",
+    address: "Same address",
+    notes: "Open late",
+    category: "sport_studio",
+    subcategory: "fitness",
+  });
+
+  expect(updated).toMatchObject({
+    name: "New name",
+    notes: "Open late",
+    category: "sport_studio",
+    subcategory: "fitness",
+    isActive: true,
+    source: ["overpass"],
+  });
+});
+
+test("managed POI updates custom metadata while retaining custom semantics", async () => {
+  const config = createAppConfig();
+  databasePaths.push(config.databasePath);
+  const database = createDatabase(config);
+  const app = { config, database } as any;
+  const result = database
+    .query(
+      `INSERT INTO custom_pois (
+        name, address, notes, latitude, longitude, is_active, created_at, updated_at
+      ) VALUES ('Office', 'Old address', '', 48.2, 11.6, 0, ?1, ?1)`,
+    )
+    .run(new Date().toISOString());
+  globalThis.fetch = mock(async () => Response.json([{ lat: "48.21", lon: "11.61" }])) as unknown as typeof fetch;
+
+  const updated = await updateManagedPoi(app, "custom", Number(result.lastInsertRowid), {
+    name: "New office",
+    address: "New address",
+    notes: "Main entrance",
+    category: "supermarket",
+    subcategory: "ignored",
+  });
+
+  expect(updated).toMatchObject({
+    name: "New office",
+    notes: "Main entrance",
+    category: "custom",
+    subcategory: "",
+    isActive: false,
+  });
 });

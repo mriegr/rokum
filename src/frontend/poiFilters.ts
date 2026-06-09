@@ -12,7 +12,7 @@ export type PoiFilterOptions = {
   search: string;
   status: PoiStatusFilter;
   visibleCategories: Record<PoiCategory, boolean>;
-  selectedSportTags: string[];
+  selectedSubcategories: string[];
 };
 
 export function managedPoiKey(poi: ManagedPoi) {
@@ -31,6 +31,7 @@ export function indexManagedPois(pois: ManagedPoi[]) {
       poi.name,
       poi.address,
       poi.categoryLabel,
+      poi.subcategory,
       poi.kind,
       poi.notes,
       poi.source?.join(" ") ?? "",
@@ -46,7 +47,7 @@ export function filterIndexedManagedPois(
   options: PoiFilterOptions,
 ) {
   const search = normalizePoiSearch(options.search);
-  const selectedSportTags = new Set(options.selectedSportTags);
+  const selectedSubcategories = new Set(options.selectedSubcategories);
 
   return indexedPois.filter(({ poi, searchText }) => {
     if (options.status === "active" && !poi.isActive) {
@@ -61,11 +62,14 @@ export function filterIndexedManagedPois(
       return false;
     }
 
-    if (
-      poi.category === "sport_studio" &&
-      selectedSportTags.size > 0 &&
-      !poi.tags.some((tag) => selectedSportTags.has(tag))
-    ) {
+    const subcategories = managedPoiSubcategories(poi);
+    const matchesSubcategory = subcategories.length
+      ? subcategories.some((value) =>
+          selectedSubcategories.has(managedPoiSubcategoryKey(poi.category, value)),
+        )
+      : selectedSubcategories.has(managedPoiSubcategoryKey(poi.category, ""));
+
+    if (selectedSubcategories.size > 0 && !matchesSubcategory) {
       return false;
     }
 
@@ -86,19 +90,40 @@ export function summarizePoiCategories(pois: ManagedPoi[]) {
   return summaries;
 }
 
-export function summarizeSportTags(pois: ManagedPoi[]) {
-  const summaries = new Map<string, { total: number; active: number }>();
+export function managedPoiSubcategories(poi: ManagedPoi) {
+  return Array.from(new Set([poi.subcategory, ...poi.tags].filter(Boolean)));
+}
+
+export function managedPoiSubcategoryKey(category: string, subcategory: string) {
+  return `${category}:${subcategory}`;
+}
+
+export function existingPoiSubcategories(pois: ManagedPoi[], category: PoiCategory) {
+  return Array.from(
+    new Set(
+      pois
+        .filter((poi) => poi.category === category)
+        .flatMap(managedPoiSubcategories),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+}
+
+export function summarizePoiSubcategories(pois: ManagedPoi[]) {
+  const summaries = new Map<string, { category: PoiCategory; label: string; total: number; active: number }>();
 
   for (const poi of pois) {
-    if (poi.category !== "sport_studio") {
-      continue;
-    }
-
-    for (const tag of poi.tags) {
-      const current = summaries.get(tag) ?? { total: 0, active: 0 };
+    const subcategories = managedPoiSubcategories(poi);
+    for (const subcategory of subcategories.length ? subcategories : [""]) {
+      const key = managedPoiSubcategoryKey(poi.category, subcategory);
+      const current = summaries.get(key) ?? {
+        category: poi.category,
+        label: subcategory,
+        total: 0,
+        active: 0,
+      };
       current.total += 1;
       current.active += poi.isActive ? 1 : 0;
-      summaries.set(tag, current);
+      summaries.set(key, current);
     }
   }
 

@@ -12,6 +12,7 @@ import {
   getApartmentById,
   getApartmentPhoto,
   getCustomPoiById,
+  getPoiById,
   getWeightSettings,
   insertApartment,
   insertCustomPoi,
@@ -30,6 +31,8 @@ import {
   updateApartmentRecord,
   updateCustomPoiCoordinates,
   updateCustomPoiRecord,
+  updatePoiCoordinates,
+  updatePoiRecord,
 } from "./db";
 import { badRequest, notFound } from "./httpErrors";
 import { loadConfig } from "../shared/config";
@@ -67,6 +70,7 @@ import type {
   MapConfig,
   CustomPoiInput,
   ManagedPoi,
+  ManagedPoiUpdateInput,
   PoiCategoryLabelRecord,
   PoiCategoryManagementPayload,
   MapPayload,
@@ -219,6 +223,7 @@ function buildManagedPois(app: AppState): ManagedPoi[] {
       kind: "standard",
       category: poi.category,
       categoryLabel: resolveCategoryLabel(labels, poi.category),
+      subcategory: poi.subcategory,
       name: poi.name,
       address: poi.address,
       isActive: poi.isActive,
@@ -237,6 +242,7 @@ function buildManagedPois(app: AppState): ManagedPoi[] {
       kind: "custom",
       category: "custom",
       categoryLabel: categoryLabel("custom"),
+      subcategory: "",
       name: poi.name,
       address: poi.address,
       isActive: poi.isActive,
@@ -286,6 +292,27 @@ function requirePoiStatusPayload(input: unknown) {
   return {
     isActive,
     items,
+  };
+}
+
+function requireManagedPoiUpdateInput(input: unknown, kind: ManagedPoi["kind"]): ManagedPoiUpdateInput {
+  const payload = input as Record<string, unknown>;
+  const name = String(payload.name ?? "").trim();
+  const address = String(payload.address ?? "").trim();
+  const category = String(payload.category ?? "");
+  if (!name || !address) {
+    throw badRequest("POI name and address are required");
+  }
+  if (kind === "standard" && !STANDARD_CATEGORIES.includes(category as StandardPoiCategory)) {
+    throw badRequest("Invalid POI category");
+  }
+
+  return {
+    name,
+    address,
+    notes: String(payload.notes ?? "").trim(),
+    category: kind === "custom" ? "custom" : category as StandardPoiCategory,
+    subcategory: kind === "custom" ? "" : String(payload.subcategory ?? "").trim(),
   };
 }
 
@@ -1040,6 +1067,46 @@ export async function updatePoiStatuses(app: AppState, payload: unknown) {
   });
   await rescoreAllApartments(app);
   return getPoiManagementPayload(app);
+}
+
+export async function updateManagedPoi(app: AppState, kind: ManagedPoi["kind"], poiId: number, payload: unknown) {
+  const input = requireManagedPoiUpdateInput(payload, kind);
+  if (kind === "custom") {
+    const poi = getCustomPoiById(app.database, poiId);
+    if (!poi) throw notFound("POI not found");
+    updateCustomPoiRecord(app.database, poiId, {
+      name: input.name,
+      address: input.address,
+      notes: input.notes,
+      isActive: poi.isActive,
+    });
+    try {
+      const coordinates = await geocodeAddress(app.config, input.address);
+      updateCustomPoiCoordinates(app.database, poiId, coordinates.latitude, coordinates.longitude);
+    } catch (error) {
+      console.warn("Custom POI geocoding failed during managed update", error);
+    }
+  } else {
+    const poi = getPoiById(app.database, poiId);
+    if (!poi) throw notFound("POI not found");
+    updatePoiRecord(app.database, poiId, {
+      category: input.category as StandardPoiCategory,
+      subcategory: input.subcategory,
+      name: input.name,
+      address: input.address,
+      note: input.notes,
+    });
+    if (input.address !== poi.address) {
+      try {
+        const coordinates = await geocodeAddress(app.config, input.address);
+        updatePoiCoordinates(app.database, poiId, coordinates.latitude, coordinates.longitude);
+      } catch (error) {
+        console.warn("Standard POI geocoding failed during update", error);
+      }
+    }
+  }
+  await rescoreAllApartments(app);
+  return getPoiManagementPayload(app).pois.find((poi) => poi.kind === kind && poi.id === poiId)!;
 }
 
 export function getPoiIcons(app: AppState): PoiIconMapping {

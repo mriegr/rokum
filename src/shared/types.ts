@@ -189,6 +189,7 @@ export type ManagedPoi = {
   kind: "standard" | "custom";
   category: StandardPoiCategory | "custom";
   categoryLabel: string;
+  subcategory: string;
   name: string;
   address: string;
   isActive: boolean;
@@ -203,6 +204,14 @@ export type ManagedPoi = {
 
 export type PoiManagementPayload = {
   pois: ManagedPoi[];
+};
+
+export type ManagedPoiUpdateInput = {
+  name: string;
+  address: string;
+  notes: string;
+  category: PoiCategory;
+  subcategory: string;
 };
 
 export type AppConfig = {

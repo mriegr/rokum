@@ -3,6 +3,7 @@ import type {
   BootstrapPayload,
   CustomPoi,
   MapPayload,
+  ManagedPoi,
   PoiCategoryManagementPayload,
   PoiCategory,
   PoiIconMapping,
@@ -12,6 +13,7 @@ import type {
 } from "../shared/types";
 import type { MapAddressSuggestion, PanelView, SortMode } from "./state";
 import {
+  categoryDisplayLabel,
   isCategoryExpanded,
   MANAGED_POI_CATEGORY_ORDER,
   poiIconKey,
@@ -46,6 +48,7 @@ import {
   renderMap,
 } from "./map";
 import {
+  existingPoiSubcategories,
   indexManagedPois,
   managedPoiKey,
   type PoiStatusFilter,
@@ -728,9 +731,24 @@ export function bindPoiAdminEvents() {
       return;
     }
 
+    if (input.id === "poi-editor-category" && input instanceof HTMLSelectElement) {
+      const subcategorySelect = shell.querySelector<HTMLSelectElement>("#poi-editor-subcategory");
+      if (!subcategorySelect) return;
+      const category = input.value as PoiCategory;
+      subcategorySelect.innerHTML = [
+        '<option value="">No subcategory</option>',
+        ...existingPoiSubcategories(state.pois, category).map((subcategory) => {
+          const label = categoryDisplayLabel(category, subcategory, subcategory);
+          return `<option value="${escapeHtml(subcategory)}">${escapeHtml(label)}</option>`;
+        }),
+      ].join("");
+      subcategorySelect.value = "";
+      return;
+    }
+
     if (input.id === "poi-status-filter") {
       state.poiStatusFilter = input.value as PoiStatusFilter;
-      updatePoiRegions();
+      updatePoiRegions({ controls: true });
       return;
     }
 
@@ -773,7 +791,20 @@ export function bindPoiAdminEvents() {
       }
 
       state.visibleManagedPoiCategories[category] = input.checked;
-      updatePoiRegions();
+      updatePoiRegions({ controls: true });
+      return;
+    }
+
+    if (input.dataset.action === "toggle-managed-poi-subcategory" && input instanceof HTMLInputElement) {
+      const key = input.dataset.key;
+      if (!key) {
+        return;
+      }
+
+      state.selectedManagedSubcategories = input.checked
+        ? [...new Set([...state.selectedManagedSubcategories, key])]
+        : state.selectedManagedSubcategories.filter((value) => value !== key);
+      updatePoiRegions({ controls: true });
       return;
     }
 
@@ -786,6 +817,25 @@ export function bindPoiAdminEvents() {
     }
 
     const action = target.dataset.action;
+
+    if (action === "edit-managed-poi") {
+      state.editingManagedPoiKey = target.dataset.key ?? null;
+      render();
+      return;
+    }
+
+    if (action === "edit-selected-poi") {
+      const visibleSelected = selectedManagedPois();
+      state.editingManagedPoiKey = visibleSelected.length === 1 ? managedPoiKey(visibleSelected[0]!) : null;
+      render();
+      return;
+    }
+
+    if (action === "close-poi-editor") {
+      state.editingManagedPoiKey = null;
+      render();
+      return;
+    }
 
     if (action === "set-single-poi-status") {
       const key = target.dataset.key;
@@ -818,7 +868,19 @@ export function bindPoiAdminEvents() {
         sport_studio: true,
         custom: true,
       };
-      state.selectedManagedSportTags = [];
+      state.selectedManagedSubcategories = [];
+      updatePoiRegions({ controls: true });
+      return;
+    }
+
+    if (action === "toggle-poi-filters") {
+      state.poiFiltersOpen = !state.poiFiltersOpen;
+      updatePoiRegions({ controls: true });
+      return;
+    }
+
+    if (action === "close-poi-filters") {
+      state.poiFiltersOpen = false;
       updatePoiRegions({ controls: true });
       return;
     }
@@ -832,23 +894,35 @@ export function bindPoiAdminEvents() {
       return;
     }
 
-    if (action === "toggle-managed-sport-tag") {
-      const tag = target.dataset.tag;
-      if (!tag) {
-        return;
-      }
-
-      state.selectedManagedSportTags = state.selectedManagedSportTags.includes(tag)
-        ? state.selectedManagedSportTags.filter((value) => value !== tag)
-        : [...state.selectedManagedSportTags, tag];
-      updatePoiRegions({ controls: true });
-      return;
-    }
-
-    if (action === "select-all-managed-sport-tags") {
-      state.selectedManagedSportTags = [];
+    if (action === "clear-poi-subcategories") {
+      state.selectedManagedSubcategories = [];
       updatePoiRegions({ controls: true });
     }
+  });
+
+  const editorForm = document.querySelector<HTMLFormElement>("#poi-editor-form");
+  editorForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(editorForm);
+    const key = String(formData.get("key") ?? "");
+    const [kind, rawId] = key.split(":");
+    const id = Number(rawId);
+    const poi = state.pois.find((item) => managedPoiKey(item) === key);
+    if (!poi || (kind !== "standard" && kind !== "custom") || !Number.isInteger(id)) return;
+
+    await requestJson<ManagedPoi>(`/api/pois/${kind}/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        name: String(formData.get("name") ?? ""),
+        address: String(formData.get("address") ?? ""),
+        notes: String(formData.get("notes") ?? ""),
+        category: kind === "custom" ? "custom" : String(formData.get("category") ?? poi.category),
+        subcategory: kind === "custom" ? "" : String(formData.get("subcategory") ?? ""),
+      }),
+    });
+    state.editingManagedPoiKey = null;
+    state.selectedManagedPoiKeys = [];
+    await refreshAppData({ refreshMap: true, refreshPois: true });
   });
 }
 

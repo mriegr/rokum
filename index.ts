@@ -23,6 +23,7 @@ import {
   serveMapTile,
   updateApartment,
   updatePoiCategoryLabel,
+  updateManagedPoi,
   updateCustomPoi,
   updatePoiStatuses,
   updateSettings,
@@ -147,6 +148,13 @@ Bun.serve({
       if (pathname === "/api/pois/status" && method === "PUT") {
         const payload = await request.json();
         return json(await updatePoiStatuses(app, payload));
+      }
+
+      const managedPoiMatch = pathname.match(/^\/api\/pois\/(standard|custom)\/(\d+)$/);
+      if (managedPoiMatch && method === "PUT") {
+        const poiId = parseId(managedPoiMatch[2]);
+        if (!poiId) return json({ error: "Invalid POI id" }, 400);
+        return json(await updateManagedPoi(app, managedPoiMatch[1] as "standard" | "custom", poiId, await request.json()));
       }
 
       if (pathname === "/api/poi-icons" && method === "GET") {

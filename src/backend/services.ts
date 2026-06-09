@@ -351,7 +351,7 @@ async function fetchOverpassPois(
 
       return {
         category,
-        subcategory: "",
+      subcategory: "",
         name,
         address,
         isActive: true,
@@ -544,7 +544,7 @@ export async function seedSportStudios(database: Database) {
 
     insertOrIgnorePoi(database, {
       category: "sport_studio",
-      subcategory: "",
+      subcategory: venue.categories?.filter(Boolean)[0] ?? "",
       name: venue.name,
       address,
       isActive: true,

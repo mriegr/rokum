@@ -58,9 +58,11 @@ export type AppState = BootstrapPayload & {
   poisLoaded: boolean;
   poiSearch: string;
   poiStatusFilter: PoiStatusFilter;
+  poiFiltersOpen: boolean;
   visibleManagedPoiCategories: Record<PoiCategory, boolean>;
-  selectedManagedSportTags: string[];
+  selectedManagedSubcategories: string[];
   selectedManagedPoiKeys: string[];
+  editingManagedPoiKey: string | null;
   managedPoiIcons: Map<string, string>;
   poiCategoryLabelMap: Map<string, string>;
   categoriesLoaded: boolean;
@@ -140,13 +142,15 @@ export const state: AppState = {
   poisLoaded: false,
   poiSearch: "",
   poiStatusFilter: "all",
+  poiFiltersOpen: false,
   visibleManagedPoiCategories: {
     supermarket: true,
     sport_studio: true,
     custom: true,
   },
-  selectedManagedSportTags: [],
+  selectedManagedSubcategories: [],
   selectedManagedPoiKeys: [],
+  editingManagedPoiKey: null,
   managedPoiIcons: new Map(),
   poiCategoryLabelMap: new Map(),
   categoriesLoaded: false,
@@ -222,7 +226,7 @@ export function currentPoiFilters() {
     search: state.poiSearch,
     status: state.poiStatusFilter,
     visibleCategories: state.visibleManagedPoiCategories,
-    selectedSportTags: state.selectedManagedSportTags,
+    selectedSubcategories: state.selectedManagedSubcategories,
   };
 }
 
