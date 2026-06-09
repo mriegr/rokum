@@ -1,6 +1,10 @@
 import { afterEach, expect, mock, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { fetchTransitMapOverlay, searchMapAddresses } from "./services";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { getPoiIcon, upsertPoiIcon } from "./db";
+import { fetchTransitMapOverlay, searchMapAddresses, seedSportStudioIcons } from "./services";
 import type { AppConfig } from "../shared/types";
 
 const originalFetch = globalThis.fetch;
@@ -24,6 +28,41 @@ function createConfig(): AppConfig {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   mock.restore();
+});
+
+test("seedSportStudioIcons refreshes liquid icons and preserves uploaded overrides", () => {
+  const database = new Database(":memory:");
+  const iconDir = join("/tmp", `rokum-sport-icons-${randomUUID()}`);
+  mkdirSync(iconDir, { recursive: true });
+  database.exec(`
+    CREATE TABLE poi_icons (
+      category TEXT NOT NULL,
+      subcategory TEXT NOT NULL DEFAULT '',
+      icon_path TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(category, subcategory)
+    );
+  `);
+
+  try {
+    writeFileSync(join(iconDir, "Running.svg"), "stale icon");
+    seedSportStudioIcons(database, iconDir);
+
+    const runningIcon = readFileSync(join(iconDir, "Running.svg"), "utf8");
+    expect(runningIcon).toContain('id="liquid-bg"');
+    expect(getPoiIcon(database, "sport_studio", "Running")?.iconPath).toBe(
+      "/uploads/icons/Running.svg",
+    );
+
+    upsertPoiIcon(database, "sport_studio", "Running", "/uploads/icons/custom-running.png");
+    seedSportStudioIcons(database, iconDir);
+    expect(getPoiIcon(database, "sport_studio", "Running")?.iconPath).toBe(
+      "/uploads/icons/custom-running.png",
+    );
+  } finally {
+    database.close();
+    rmSync(iconDir, { recursive: true, force: true });
+  }
 });
 
 test("searchMapAddresses constrains and normalizes Jawg autocomplete suggestions", async () => {

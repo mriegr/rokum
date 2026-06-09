@@ -1,9 +1,10 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   addApartmentPhoto,
+  getPoiIcon,
   listActivePois,
   listActivePoisByCategory,
   insertOrIgnorePoi,
@@ -28,6 +29,7 @@ import {
   saveMunichUbahnRoutes,
 } from "./transitOverlayCache";
 import { simplifyRoutePaths } from "./routeSimplifier";
+import { makeSportStudioSvg } from "./sportStudioIcons";
 import { sanitizePathSegment } from "./storagePaths";
 
 type Coordinates = {
@@ -579,263 +581,19 @@ export function seedSportStudioIcons(database: Database, iconDir: string) {
   mkdirSync(iconDir, { recursive: true });
 
   for (const tag of uniqueTags) {
-    const svg = makeSportSvg(tag);
+    const svg = makeSportStudioSvg(tag);
     const safeName = sanitizePathSegment(tag, "sport");
     const filename = `${safeName}.svg`;
     const filePath = join(iconDir, filename);
-    if (!existsSync(filePath)) {
-      Bun.write(filePath, svg);
+    const iconPath = `/uploads/icons/${filename}`;
+    const existingIcon = getPoiIcon(database, "sport_studio", tag);
+
+    writeFileSync(filePath, svg, "utf8");
+    if (!existingIcon) {
+      upsertPoiIcon(database, "sport_studio", tag, iconPath);
     }
-    upsertPoiIcon(database, "sport_studio", tag, `/uploads/icons/${filename}`);
   }
 }
-
-function makeSportSvg(tag: string): string {
-  const iconContent = SUBICON_MAP[tag] ?? defaultSvgSymbol(tag);
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <rect width="24" height="24" rx="5" fill="#2ecc71"/>
-  <g transform="translate(2,2)">${iconContent}</g>
-</svg>`;
-}
-
-function defaultSvgSymbol(tag: string): string {
-  const abbr = tag
-    .split(/\s+/)
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-  return `<text x="10" y="15" text-anchor="middle" fill="#fff" font-family="Arial,Helvetica,sans-serif" font-size="12" font-weight="bold">${abbr}</text>`;
-}
-
-const SUBICON_MAP: Record<string, string> = {
-  Running: `<path d="M10,4a2,2,0,1,0,0-4a2,2,0,0,0,0,4zm0,2v6l-4,5m4-5l4,5" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<path d="M7,8l3,2m3-2l-3,2" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/>`,
-
-  Yoga: `<circle cx="10" cy="4" r="2.5" fill="#fff"/>` +
-    `<path d="M10,6.5v5l-4,5m4-5l4,5M7,11l-3,2m6-2l3,2" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<path d="M10,9.5l-4,2m4-2l4,2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
-
-  Cycling: `<circle cx="10" cy="10" r="7" stroke="#fff" stroke-width="1.8" fill="none"/>` +
-    `<circle cx="10" cy="10" r="2" fill="#fff"/>` +
-    `<line x1="10" y1="3" x2="10" y2="17" stroke="#fff" stroke-width="1.5"/>` +
-    `<line x1="3" y1="10" x2="17" y2="10" stroke="#fff" stroke-width="1.5"/>`,
-
-  Swimming: `<path d="M3,14q3.5-6,7,0q3.5-6,7,0" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>` +
-    `<circle cx="10" cy="5" r="2.5" fill="#fff"/>` +
-    `<path d="M10,7.5l-3,3m3-3l4,2" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/>`,
-
-  Tennis: `<circle cx="10" cy="10" r="5" stroke="#fff" stroke-width="1.5" fill="none"/>` +
-    `<path d="M13,7l4-4" stroke="#fff" stroke-width="2" stroke-linecap="round"/>` +
-    `<circle cx="9" cy="6" r="1.5" fill="#fff"/>`,
-
-  "Table Tennis": `<circle cx="10" cy="6" r="2" fill="#fff"/>` +
-    `<ellipse cx="10" cy="13" rx="5" ry="4" stroke="#fff" stroke-width="1.5" fill="none"/>` +
-    `<line x1="13" y1="10" x2="17" y2="12" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`,
-
-  Football: `<circle cx="10" cy="10" r="7" fill="none" stroke="#fff" stroke-width="1.8"/>` +
-    `<polygon points="10,4 13,8 12,13 8,13 7,8" fill="none" stroke="#fff" stroke-width="1.2"/>`,
-
-  Dance: `<circle cx="10" cy="3" r="2.5" fill="#fff"/>` +
-    `<path d="M10,5.5v5l-4,5m4-6l-3-2m3,2l4,3" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<path d="M6,9l-2,4" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
-
-  Fitness: `<rect x="4" y="8" width="12" height="4" rx="1.5" fill="#fff"/>` +
-    `<circle cx="4" cy="10" r="3" fill="#fff"/><circle cx="16" cy="10" r="3" fill="#fff"/>` +
-    `<rect x="4" y="8" width="12" height="4" rx="1.5" stroke="#2ecc71" stroke-width="1" fill="none"/>`,
-
-  Climbing: `<circle cx="10" cy="4" r="2" fill="#fff"/>` +
-    `<path d="M10,6v3" stroke="#fff" stroke-width="1.8" fill="none"/>` +
-    `<circle cx="7" cy="13" r="1.5" fill="#fff"/><circle cx="13" cy="13" r="1.5" fill="#fff"/>` +
-    `<circle cx="10" cy="16" r="2" fill="#fff"/>`,
-
-  Bouldering: `<circle cx="10" cy="3" r="2" fill="#fff"/>` +
-    `<path d="M10,5v4" stroke="#fff" stroke-width="1.8" fill="none"/>` +
-    `<circle cx="5" cy="11" r="1.5" fill="#fff"/><circle cx="15" cy="11" r="1.5" fill="#fff"/>` +
-    `<circle cx="10" cy="17" r="2" fill="#fff"/>`,
-
-  "Boxing Sports": `<circle cx="7" cy="8" r="4" fill="#fff"/><circle cx="13" cy="8" r="4" fill="#fff"/>` +
-    `<circle cx="7" cy="8" r="2" fill="#2ecc71"/><circle cx="13" cy="8" r="2" fill="#2ecc71"/>`,
-
-  "Mixed Martial Arts": `<rect x="3" y="3" width="14" height="14" rx="2" stroke="#fff" stroke-width="1.8" fill="none"/>` +
-    `<circle cx="8" cy="8" r="3" fill="#fff"/><circle cx="12" cy="8" r="3" fill="#fff"/>` +
-    `<circle cx="8" cy="8" r="1.5" fill="#2ecc71"/><circle cx="12" cy="8" r="1.5" fill="#2ecc71"/>`,
-
-  "Free Fight": `<circle cx="10" cy="8" r="5" fill="#fff"/>` +
-    `<circle cx="10" cy="8" r="2.5" fill="#2ecc71"/>` +
-    `<path d="M5,14q5,4,10,0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/>`,
-
-  "Modern Self Defense": `<path d="M5,3v8q0,4,5,6q5-2,5-6V3Z" fill="#fff"/>` +
-    `<line x1="8" y1="8" x2="12" y2="12" stroke="#2ecc71" stroke-width="2" stroke-linecap="round"/>` +
-    `<line x1="12" y1="8" x2="8" y2="12" stroke="#2ecc71" stroke-width="2" stroke-linecap="round"/>`,
-
-  Pilates: `<rect x="3" y="6" width="14" height="8" rx="3" stroke="#fff" stroke-width="1.8" fill="none"/>` +
-    `<circle cx="10" cy="10" r="2.5" fill="#fff"/>`,
-
-  "Pilates Reformer": `<rect x="2" y="6" width="16" height="8" rx="1" stroke="#fff" stroke-width="1.5" fill="none"/>` +
-    `<rect x="2" y="6" width="4" height="8" rx="1" fill="#fff"/>` +
-    `<line x1="18" y1="8" x2="18" y2="12" stroke="#fff" stroke-width="1.5"/>`,
-
-  "Pole Dance": `<line x1="10" y1="2" x2="10" y2="18" stroke="#fff" stroke-width="2.5"/>` +
-    `<circle cx="10" cy="4" r="2" fill="#fff"/>` +
-    `<path d="M12,6l4,4" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/>` +
-    `<path d="M10,10l-4,3" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/>`,
-
-  "Indoor Cycling": `<circle cx="10" cy="10" r="6" stroke="#fff" stroke-width="1.8" fill="none"/>` +
-    `<line x1="10" y1="4" x2="10" y2="16" stroke="#fff" stroke-width="1.5"/>` +
-    `<line x1="4" y1="10" x2="16" y2="10" stroke="#fff" stroke-width="1.5"/>` +
-    `<circle cx="10" cy="10" r="2" fill="#fff"/>` +
-    `<path d="M4,16l6-2" stroke="#fff" stroke-width="1.5" fill="none"/>`,
-
-  Wellness: `<path d="M10,18c-4-3-7-6-7-9c0-3,3-5,7-2c4-3,7-1,7,2c0,3-3,6-7,9z" fill="#fff"/>` +
-    `<path d="M8,10l2,2l4-4" stroke="#2ecc71" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
-
-  Sauna: `<path d="M16,5l-6,9H4l6-9z" fill="#fff"/>` +
-    `<path d="M10,14l-2,3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>` +
-    `<path d="M6,12l-1,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>` +
-    `<path d="M14,12l1,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`,
-
-  Spa: `<circle cx="10" cy="12" r="6" fill="none" stroke="#fff" stroke-width="1.5"/>` +
-    `<path d="M10,6c0,0,4-2,4,2s-4,4-4,4" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>` +
-    `<path d="M10,6c0,0-4-2-4,2s4,4,4,4" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
-
-  Massage: `<circle cx="10" cy="4" r="2" fill="#fff"/>` +
-    `<path d="M10,6v4" stroke="#fff" stroke-width="1.8" fill="none"/>` +
-    `<circle cx="6" cy="13" r="3" fill="#fff"/><circle cx="14" cy="13" r="3" fill="#fff"/>` +
-    `<circle cx="6" cy="13" r="1" fill="#2ecc71"/><circle cx="14" cy="13" r="1" fill="#2ecc71"/>`,
-
-  Meditation: `<circle cx="10" cy="4" r="2.5" fill="#fff"/>` +
-    `<path d="M10,6.5v3l-5,5m5-5l5,5" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<path d="M10,9l-3,2m3-2l3,2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>` +
-    `<circle cx="10" cy="16" r="2" fill="none" stroke="#fff" stroke-width="1.5"/>`,
-
-  Hiking: `<path d="M10,3a2,2,0,1,0,0-4a2,2,0,0,0,0,4zm0,2v6l-4,7m4-7l4,5" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<path d="M6,8l4,2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>` +
-    `<polyline points="18,14 15,8 12,12" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
-
-  Bootcamp: `<polyline points="5,14 8,6 12,8 16,4" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<line x1="3" y1="16" x2="17" y2="16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>` +
-    `<line x1="8" y1="6" x2="8" y2="16" stroke="#fff" stroke-width="1" stroke-dasharray="2,2"/>`,
-
-  Crosstraining: `<line x1="5" y1="5" x2="15" y2="15" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>` +
-    `<line x1="15" y1="5" x2="5" y2="15" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>` +
-    `<circle cx="10" cy="10" r="6" fill="none" stroke="#fff" stroke-width="1.5"/>`,
-
-  "Functional Training": `<circle cx="10" cy="10" r="3" fill="#fff"/>` +
-    `<circle cx="10" cy="10" r="7" fill="none" stroke="#fff" stroke-width="1.5" stroke-dasharray="3,2"/>` +
-    `<line x1="10" y1="3" x2="10" y2="5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>` +
-    `<line x1="10" y1="15" x2="10" y2="17" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>` +
-    `<line x1="3" y1="10" x2="5" y2="10" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>` +
-    `<line x1="15" y1="10" x2="17" y2="10" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`,
-
-  Barre: `<line x1="2" y1="5" x2="18" y2="5" stroke="#fff" stroke-width="1.5"/>` +
-    `<circle cx="8" cy="4" r="1.5" fill="#fff"/>` +
-    `<path d="M8,5.5v4l-3,4m3-4l4,2" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/>` +
-    `<line x1="2" y1="7" x2="6" y2="7" stroke="#fff" stroke-width="1"/>`,
-
-  "Beach Volleyball": `<circle cx="10" cy="10" r="5" fill="none" stroke="#fff" stroke-width="1.8"/>` +
-    `<path d="M13,7q5,0 0,10" stroke="#fff" stroke-width="1.2" fill="none"/>` +
-    `<circle cx="10" cy="10" r="1.5" fill="#fff"/>`,
-
-  Badminton: `<ellipse cx="10" cy="5" rx="2" ry="3" fill="#fff"/>` +
-    `<polyline points="8,8 10,16 12,8" stroke="#fff" stroke-width="1.5" fill="none" stroke-linejoin="round"/>` +
-    `<line x1="10" y1="10" x2="10" y2="16" stroke="#fff" stroke-width="1" stroke-dasharray="1,2"/>`,
-
-  Squash: `<rect x="2" y="2" width="16" height="16" rx="1" stroke="#fff" stroke-width="1.5" fill="none"/>` +
-    `<circle cx="12" cy="12" r="3" fill="none" stroke="#fff" stroke-width="1.5"/>` +
-    `<line x1="14" y1="10" x2="18" y2="6" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`,
-
-  Padel: `<ellipse cx="10" cy="10" rx="6" ry="7" stroke="#fff" stroke-width="1.5" fill="none"/>` +
-    `<line x1="10" y1="3" x2="10" y2="17" stroke="#fff" stroke-width="1" stroke-dasharray="2,2"/>` +
-    `<circle cx="8" cy="8" r="1" fill="#fff"/><circle cx="12" cy="8" r="1" fill="#fff"/>` +
-    `<circle cx="10" cy="12" r="1" fill="#fff"/>`,
-
-  "Game of Golf": `<circle cx="7" cy="6" r="3" fill="#fff"/>` +
-    `<line x1="7" y1="9" x2="7" y2="15" stroke="#fff" stroke-width="2" stroke-linecap="round"/>` +
-    `<path d="M10,15l4-6l4,1" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
-
-  "Golf Driving Range": `<line x1="4" y1="16" x2="12" y2="4" stroke="#fff" stroke-width="2" stroke-linecap="round"/>` +
-    `<circle cx="14" cy="4" r="2.5" fill="#fff"/>` +
-    `<path d="M16,14a5,5,0,0,0,0-10" stroke="#fff" stroke-width="1.5" fill="none"/>`,
-
-  Trampoline: `<path d="M3,12q7-3,14,0" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>` +
-    `<line x1="3" y1="16" x2="3" y2="12" stroke="#fff" stroke-width="1.5"/>` +
-    `<line x1="17" y1="16" x2="17" y2="12" stroke="#fff" stroke-width="1.5"/>` +
-    `<polyline points="7,8 10,3 13,8" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
-
-  "Ice Skating": `<line x1="3" y1="16" x2="19" y2="16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>` +
-    `<circle cx="8" cy="6" r="2" fill="#fff"/>` +
-    `<path d="M8,8v5l-4,3m4-5l6,2l4-1" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
-
-  Archery: `<path d="M15,4q-8,0-8,8q0,8,8,8" stroke="#fff" stroke-width="1.5" fill="none"/>` +
-    `<line x1="3" y1="12" x2="17" y2="12" stroke="#fff" stroke-width="2" stroke-linecap="round"/>` +
-    `<polygon points="17,10 20,12 17,14" fill="#fff"/>`,
-
-  Aqua: `<path d="M3,14q3-4,6,0q3-4,6,0" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>` +
-    `<path d="M6,10q3-4,6,0q3-4,6,0" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.5"/>` +
-    `<circle cx="10" cy="5" r="2" fill="#fff"/>`,
-
-  "Stand Up Paddling": `<path d="M4,14h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>` +
-    `<circle cx="10" cy="4" r="2" fill="#fff"/>` +
-    `<line x1="10" y1="6" x2="10" y2="14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>` +
-    `<path d="M7,7l3,2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>` +
-    `<path d="M13,7l-3,2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
-
-  EMS: `<polyline points="13,2 7,10 11,10 9,18 15,10 11,10" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
-
-  "EMS Cardio": `<polyline points="14,3 10,10 12,10 10,16 16,9 13,9" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<path d="M4,10a2,2,0,0,1,4,0a2,2,0,0,1,4,0" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
-
-  "Vibration Training": `<line x1="10" y1="2" x2="10" y2="18" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>` +
-    `<path d="M4,8q0-3,3,0q3,3,6,0" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>` +
-    `<path d="M10,8q3-3,6,0" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
-
-  Cryotherapy: `<line x1="10" y1="2" x2="10" y2="18" stroke="#fff" stroke-width="1.5"/>` +
-    `<line x1="2" y1="10" x2="18" y2="10" stroke="#fff" stroke-width="1.5"/>` +
-    `<line x1="5" y1="5" x2="15" y2="15" stroke="#fff" stroke-width="1.2"/>` +
-    `<line x1="15" y1="5" x2="5" y2="15" stroke="#fff" stroke-width="1.2"/>` +
-    `<circle cx="10" cy="10" r="3" fill="none" stroke="#fff" stroke-width="1.5"/>` +
-    `<circle cx="10" cy="10" r="1" fill="#fff"/>`,
-
-  PersonalTraining: `<circle cx="10" cy="4" r="2.5" fill="#fff"/>` +
-    `<path d="M10,6.5v5l-4,5m4-5l4,5" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<path d="M7,9l3,2m3-2l-3,2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>` +
-    `<circle cx="18" cy="3" r="1" fill="#fff"/>` +
-    `<line x1="18" y1="4" x2="18" y2="7" stroke="#fff" stroke-width="1"/>`,
-
-  Relaxation: `<path d="M12,4a8,8,0,1,1-8,8" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>` +
-    `<circle cx="12" cy="4" r="2" fill="#fff"/>` +
-    `<circle cx="4" cy="12" r="2" fill="#fff"/>` +
-    `<line x1="12" y1="6" x2="12" y2="10" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>` +
-    `<line x1="12" y1="10" x2="8" y2="12" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`,
-
-  Hyrox: `<line x1="4" y1="3" x2="4" y2="17" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>` +
-    `<line x1="4" y1="10" x2="11" y2="10" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>` +
-    `<line x1="11" y1="3" x2="11" y2="17" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>` +
-    `<circle cx="16" cy="8" r="2" fill="#fff"/>` +
-    `<path d="M16,10v4l-2,3" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/>` +
-    `<path d="M14,13l2-1l2,1" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
-
-  "Qi Gong and Tai Chi": `<circle cx="10" cy="10" r="8" fill="none" stroke="#fff" stroke-width="1.5"/>` +
-    `<path d="M10,4v6l-4,4" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<path d="M10,10l4-2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>` +
-    `<circle cx="10" cy="10" r="1.5" fill="#fff"/>`,
-
-  Aerial: `<line x1="10" y1="2" x2="10" y2="6" stroke="#fff" stroke-width="1.5"/>` +
-    `<circle cx="6" cy="4" r="2" fill="none" stroke="#fff" stroke-width="1.5"/>` +
-    `<circle cx="14" cy="4" r="2" fill="none" stroke="#fff" stroke-width="1.5"/>` +
-    `<circle cx="6" cy="4" r="1" fill="#fff"/><circle cx="14" cy="4" r="1" fill="#fff"/>` +
-    `<path d="M5,7q0,6,10,0" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
-
-  "Traditional Asian Martial Arts": `<circle cx="10" cy="10" r="8" fill="none" stroke="#fff" stroke-width="1.5"/>` +
-    `<path d="M10,2a8,8,0,0,1,0,16a4,4,0,0,0,0-8a4,4,0,0,1,0-8z" fill="#fff"/>` +
-    `<circle cx="10" cy="6" r="1.5" fill="#2ecc71"/><circle cx="10" cy="14" r="1.5" fill="#fff"/>`,
-
-  Capoeira: `<circle cx="10" cy="3" r="2.5" fill="#fff"/>` +
-    `<path d="M10,5.5l-3,4l5,3l-6,4" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<path d="M12,7l4-2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>` +
-    `<path d="M10,10l-2,2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/>`,
-};
 
 export async function storeUploadedPhotos(
   database: Database,

@@ -346,6 +346,14 @@ Preserve it when changing POI flows.
 
 Changing seed structure or tag normalization affects multiple surfaces.
 
+Sport studio subcategory icons are generated as compact circular liquid-glass SVGs by
+`seedSportStudioIcons()`. `sportStudioIcons.ts` defines an explicit semantic
+glyph concept for every known subcategory and selects a stable name-based
+gradient palette. Unknown names fail instead of receiving an unrelated fallback
+glyph. Generated SVG files are refreshed on startup so design changes reach
+existing installs, while database records that point to a separately uploaded
+icon remain untouched.
+
 ### Map payload vs bootstrap payload
 
 Do not try to derive map behavior purely from `/api/bootstrap`. The focused map view depends on `/api/apartments/:id/map`.
