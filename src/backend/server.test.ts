@@ -93,12 +93,12 @@ test("style proxy rewrites Jawg asset URLs to local endpoints", async () => {
 
   const payload = await response.json();
   expect(payload.sources.jawg.tiles[0]).toMatch(
-    /^\/api\/map\/tiles\/[a-f0-9]+\/\{z\}\/\{x\}\/\{y\}\.pbf$/,
+    /^http:\/\/localhost:3000\/api\/map\/tiles\/[a-f0-9]+\/\{z\}\/\{x\}\/\{y\}\.pbf$/,
   );
   expect(payload.glyphs).toMatch(
-    /^\/api\/map\/glyphs\/[a-f0-9]+\/\{fontstack\}\/\{range\}\.pbf$/,
+    /^http:\/\/localhost:3000\/api\/map\/glyphs\/[a-f0-9]+\/\{fontstack\}\/\{range\}\.pbf$/,
   );
-  expect(payload.sprite).toMatch(/^\/api\/map\/sprites\/[a-f0-9]+$/);
+  expect(payload.sprite).toMatch(/^http:\/\/localhost:3000\/api\/map\/sprites\/[a-f0-9]+$/);
   expect(JSON.stringify(payload)).not.toContain("secret-token");
   expect(JSON.stringify(payload)).not.toContain("https://tile.jawg.io");
 });
@@ -136,7 +136,7 @@ test("tile proxy deduplicates concurrent upstream requests", async () => {
   );
   const payload = await styleResponse.json();
   const tileUrl = String(payload.sources.jawg.tiles[0]);
-  const assetId = tileUrl.match(/^\/api\/map\/tiles\/([a-f0-9]+)\//)?.[1];
+  const assetId = tileUrl.match(/^http:\/\/localhost:3000\/api\/map\/tiles\/([a-f0-9]+)\//)?.[1];
 
   expect(assetId).toBeTruthy();
 
