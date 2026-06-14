@@ -134,6 +134,89 @@ export function renderApartmentCard(apartment: Apartment) {
   `;
 }
 
+function renderApartmentAddressSearch(address: string) {
+  const value = state.apartmentAddressSelection?.address ?? (state.apartmentAddressQuery || address);
+  const showDropdown =
+    state.apartmentAddressSuggestionsOpen &&
+    state.apartmentAddressQuery.trim().length >= 3 &&
+    !state.apartmentAddressSelection;
+  const statusMessage =
+    state.apartmentAddressSearchStatus === "loading"
+      ? "Searching addresses..."
+      : state.apartmentAddressSearchStatus === "error"
+        ? "Address search is temporarily unavailable."
+        : !state.apartmentAddressSuggestions.length && showDropdown
+          ? "No matching addresses in the Munich area."
+          : "";
+
+  return `
+    <div id="apartment-address-search" class="address-search">
+      <label>
+        Address
+        <div class="address-input-wrap">
+          <input
+            id="apartment-address-input"
+            name="address"
+            type="search"
+            value="${escapeHtml(value)}"
+            placeholder="Start typing an address in Munich"
+            autocomplete="off"
+            required
+          />
+        </div>
+      </label>
+      <div
+        id="apartment-address-suggestions"
+        class="address-suggestions ${showDropdown ? "is-open" : ""}"
+        role="listbox"
+      >
+        ${state.apartmentAddressSuggestions
+          .map(
+            (suggestion, index) => `
+              <button
+                id="apartment-address-option-${index}"
+                class="address-option ${
+                  index === state.apartmentAddressActiveSuggestionIndex ? "is-active" : ""
+                }"
+                type="button"
+                role="option"
+                data-action="select-apartment-address"
+                data-index="${index}"
+              >
+                <span class="address-option-copy">
+                  <strong>${escapeHtml(suggestion.label)}</strong>
+                  ${
+                    suggestion.address !== suggestion.label
+                      ? `<small>${escapeHtml(suggestion.address)}</small>`
+                      : ""
+                  }
+                </span>
+              </button>
+            `,
+          )
+          .join("")}
+        ${statusMessage ? `<p class="address-search-status" role="status">${statusMessage}</p>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+export function updateApartmentFormAddressSearch(options?: { preserveFocus?: boolean }) {
+  const wrapper = document.querySelector<HTMLElement>("#apartment-address-search");
+  if (!wrapper || state.activeView !== "list") return;
+
+  const previousInput = document.querySelector<HTMLInputElement>("#apartment-address-input");
+  const shouldRestoreFocus = options?.preserveFocus && document.activeElement === previousInput;
+  const selectionStart = previousInput?.selectionStart ?? state.apartmentAddressQuery.length;
+  wrapper.innerHTML = renderApartmentAddressSearch(state.apartmentAddressSelection?.address ?? "");
+
+  if (shouldRestoreFocus) {
+    const nextInput = wrapper.querySelector<HTMLInputElement>("#apartment-address-input");
+    nextInput?.focus();
+    nextInput?.setSelectionRange(selectionStart, selectionStart);
+  }
+}
+
 export function renderApartmentForm() {
   const defaults = apartmentFormDefaults();
   const editingApartment =
@@ -164,10 +247,7 @@ export function renderApartmentForm() {
         <button class="icon-button" data-action="prepare-create-apartment">+</button>
       </div>
       <form id="apartment-form" class="stack">
-        <label>
-          Address
-          <input name="address" type="text" value="${escapeHtml(defaults.address)}" required />
-        </label>
+        ${renderApartmentAddressSearch(defaults.address)}
         <div class="two-up">
           <label>
             Square meters

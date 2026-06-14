@@ -51,6 +51,7 @@ import {
   renderPoisView,
   renderSettingsView,
   renderTopbar,
+  updateApartmentFormAddressSearch,
   updateMapAddressSearch,
   updateMapSidebar,
 } from "./views";
@@ -70,6 +71,8 @@ import {
 let poiSearchUpdateTimer: number | null = null;
 let mapAddressSearchTimer: number | null = null;
 let mapAddressSearchSequence = 0;
+let apartmentAddressSearchTimer: number | null = null;
+let apartmentAddressSearchSequence = 0;
 
 type MapAddressSearchResponse = {
   displayLabel: string;
@@ -175,6 +178,17 @@ function bindEvents() {
         state.panelView = "apartment";
         state.apartmentEditorMode = "create";
         state.editingApartmentId = null;
+        apartmentAddressSearchSequence += 1;
+        if (apartmentAddressSearchTimer !== null) {
+          window.clearTimeout(apartmentAddressSearchTimer);
+          apartmentAddressSearchTimer = null;
+        }
+        state.apartmentAddressQuery = "";
+        state.apartmentAddressSuggestions = [];
+        state.apartmentAddressSuggestionsOpen = false;
+        state.apartmentAddressSearchStatus = "idle";
+        state.apartmentAddressActiveSuggestionIndex = -1;
+        state.apartmentAddressSelection = null;
         render();
       }
 
@@ -188,6 +202,17 @@ function bindEvents() {
         state.panelView = "apartment";
         state.apartmentEditorMode = "edit";
         state.editingApartmentId = Number(target.dataset.id);
+        apartmentAddressSearchSequence += 1;
+        if (apartmentAddressSearchTimer !== null) {
+          window.clearTimeout(apartmentAddressSearchTimer);
+          apartmentAddressSearchTimer = null;
+        }
+        state.apartmentAddressQuery = "";
+        state.apartmentAddressSuggestions = [];
+        state.apartmentAddressSuggestionsOpen = false;
+        state.apartmentAddressSearchStatus = "idle";
+        state.apartmentAddressActiveSuggestionIndex = -1;
+        state.apartmentAddressSelection = null;
         render();
       }
 
@@ -263,8 +288,31 @@ function bindEvents() {
   apartmentForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(apartmentForm);
+    const formAddress = String(formData.get("address") ?? "").trim();
+
+    const editingApartment =
+      state.editingApartmentId === null
+        ? null
+        : state.apartments.find((item) => item.id === state.editingApartmentId) ?? null;
+
+    if (state.apartmentAddressSelection) {
+      const selectedAddress = state.apartmentAddressSelection.address.trim();
+      if (selectedAddress !== formAddress) {
+        state.apartmentAddressQuery = selectedAddress;
+        updateApartmentFormAddressSearch();
+        return;
+      }
+    } else if (state.apartmentEditorMode === "create") {
+      window.alert("Please select an address from the suggestions below the address field.");
+      return;
+    } else if (editingApartment && formAddress !== editingApartment.address.trim()) {
+      window.alert("Please select an address from the suggestions below the address field, or revert to the existing address.");
+      return;
+    }
+
+    const address = state.apartmentAddressSelection?.address ?? formAddress;
     const payload = {
-      address: String(formData.get("address") ?? ""),
+      address,
       squareMeters: Number(formData.get("squareMeters") ?? 0),
       kaltmiete: Number(formData.get("kaltmiete") ?? 0),
       warmmiete: Number(formData.get("warmmiete") ?? 0),
@@ -302,6 +350,17 @@ function bindEvents() {
     state.selectedApartmentId = apartment.id;
     state.apartmentEditorMode = "edit";
     state.editingApartmentId = apartment.id;
+    apartmentAddressSearchSequence += 1;
+    if (apartmentAddressSearchTimer !== null) {
+      window.clearTimeout(apartmentAddressSearchTimer);
+      apartmentAddressSearchTimer = null;
+    }
+    state.apartmentAddressQuery = "";
+    state.apartmentAddressSuggestions = [];
+    state.apartmentAddressSuggestionsOpen = false;
+    state.apartmentAddressSearchStatus = "idle";
+    state.apartmentAddressActiveSuggestionIndex = -1;
+    state.apartmentAddressSelection = null;
     render();
   });
 
@@ -358,6 +417,7 @@ function bindEvents() {
 
   bindPoiAdminEvents();
   bindCategoryAdminEvents();
+  bindApartmentAddressSearchEvents();
 }
 
 export async function loadBootstrap() {
@@ -577,6 +637,165 @@ function clearMapAddressSearch() {
   updateMapAddressSearch();
   renderMap({ preserveViewport: true });
   document.querySelector<HTMLInputElement>("#map-address-input")?.focus();
+}
+
+type AddressSearchResponse = MapAddressSearchResponse;
+
+async function searchApartmentAddresses(query: string, sequence: number) {
+  try {
+    const results = await requestJson<AddressSearchResponse[]>(
+      `/api/map/address-search?q=${encodeURIComponent(query)}`,
+    );
+    const currentQuery = state.apartmentAddressQuery.trim().replace(/\s+/g, " ");
+    if (sequence !== apartmentAddressSearchSequence || currentQuery !== query) {
+      return;
+    }
+
+    state.apartmentAddressSuggestions = results.map(
+      (result): MapAddressSuggestion => ({
+        label: result.displayLabel || result.address,
+        address: result.address,
+        latitude: result.latitude,
+        longitude: result.longitude,
+      }),
+    );
+    state.apartmentAddressSuggestionsOpen = true;
+    state.apartmentAddressSearchStatus = "idle";
+    state.apartmentAddressActiveSuggestionIndex = results.length ? 0 : -1;
+    updateApartmentFormAddressSearch({ preserveFocus: true });
+  } catch {
+    if (sequence !== apartmentAddressSearchSequence) {
+      return;
+    }
+    state.apartmentAddressSuggestions = [];
+    state.apartmentAddressSuggestionsOpen = true;
+    state.apartmentAddressSearchStatus = "error";
+    state.apartmentAddressActiveSuggestionIndex = -1;
+    updateApartmentFormAddressSearch({ preserveFocus: true });
+  }
+}
+
+function scheduleApartmentAddressSearch() {
+  if (apartmentAddressSearchTimer !== null) {
+    window.clearTimeout(apartmentAddressSearchTimer);
+    apartmentAddressSearchTimer = null;
+  }
+
+  const query = state.apartmentAddressQuery.trim().replace(/\s+/g, " ");
+  const sequence = ++apartmentAddressSearchSequence;
+  if (query.length < 3) {
+    state.apartmentAddressSuggestions = [];
+    state.apartmentAddressSuggestionsOpen = false;
+    state.apartmentAddressSearchStatus = "idle";
+    state.apartmentAddressActiveSuggestionIndex = -1;
+    updateApartmentFormAddressSearch({ preserveFocus: true });
+    return;
+  }
+
+  state.apartmentAddressSearchStatus = "loading";
+  state.apartmentAddressSuggestions = [];
+  state.apartmentAddressSuggestionsOpen = true;
+  state.apartmentAddressActiveSuggestionIndex = -1;
+  updateApartmentFormAddressSearch({ preserveFocus: true });
+  apartmentAddressSearchTimer = window.setTimeout(() => {
+    apartmentAddressSearchTimer = null;
+    void searchApartmentAddresses(query, sequence);
+  }, 250);
+}
+
+function selectApartmentAddress(index: number) {
+  const suggestion = state.apartmentAddressSuggestions[index];
+  if (!suggestion) return;
+
+  apartmentAddressSearchSequence += 1;
+  state.apartmentAddressSelection = suggestion;
+  state.apartmentAddressQuery = suggestion.address;
+  state.apartmentAddressSuggestions = [];
+  state.apartmentAddressSuggestionsOpen = false;
+  state.apartmentAddressSearchStatus = "idle";
+  state.apartmentAddressActiveSuggestionIndex = -1;
+  updateApartmentFormAddressSearch();
+}
+
+function clearApartmentAddressSearch() {
+  apartmentAddressSearchSequence += 1;
+  if (apartmentAddressSearchTimer !== null) {
+    window.clearTimeout(apartmentAddressSearchTimer);
+    apartmentAddressSearchTimer = null;
+  }
+  state.apartmentAddressQuery = "";
+  state.apartmentAddressSuggestions = [];
+  state.apartmentAddressSuggestionsOpen = false;
+  state.apartmentAddressSearchStatus = "idle";
+  state.apartmentAddressActiveSuggestionIndex = -1;
+  state.apartmentAddressSelection = null;
+  updateApartmentFormAddressSearch();
+  document.querySelector<HTMLInputElement>("#apartment-address-input")?.focus();
+}
+
+function bindApartmentAddressSearchEvents() {
+  const sidebar = document.querySelector<HTMLElement>(".sidebar");
+  if (!sidebar) return;
+
+  sidebar.addEventListener("input", (event) => {
+    const input = event.target as HTMLInputElement | null;
+    if (input?.id !== "apartment-address-input") return;
+
+    const hadSelection = state.apartmentAddressSelection !== null;
+    state.apartmentAddressQuery = input.value;
+    state.apartmentAddressSelection = null;
+    scheduleApartmentAddressSearch();
+  });
+
+  sidebar.addEventListener("keydown", (event) => {
+    const input = event.target as HTMLInputElement | null;
+    if (input?.id !== "apartment-address-input") return;
+
+    if (event.key === "ArrowDown" && state.apartmentAddressSuggestions.length) {
+      event.preventDefault();
+      state.apartmentAddressActiveSuggestionIndex =
+        (state.apartmentAddressActiveSuggestionIndex + 1) % state.apartmentAddressSuggestions.length;
+      updateApartmentFormAddressSearch({ preserveFocus: true });
+      return;
+    }
+
+    if (event.key === "ArrowUp" && state.apartmentAddressSuggestions.length) {
+      event.preventDefault();
+      state.apartmentAddressActiveSuggestionIndex =
+        (state.apartmentAddressActiveSuggestionIndex - 1 + state.apartmentAddressSuggestions.length) %
+        state.apartmentAddressSuggestions.length;
+      updateApartmentFormAddressSearch({ preserveFocus: true });
+      return;
+    }
+
+    if (event.key === "Enter" && state.apartmentAddressSuggestions.length) {
+      event.preventDefault();
+      selectApartmentAddress(Math.max(0, state.apartmentAddressActiveSuggestionIndex));
+      return;
+    }
+
+    if (event.key === "Escape") {
+      apartmentAddressSearchSequence += 1;
+      if (apartmentAddressSearchTimer !== null) {
+        window.clearTimeout(apartmentAddressSearchTimer);
+        apartmentAddressSearchTimer = null;
+      }
+      state.apartmentAddressSuggestions = [];
+      state.apartmentAddressSuggestionsOpen = false;
+      state.apartmentAddressSearchStatus = "idle";
+      state.apartmentAddressActiveSuggestionIndex = -1;
+      updateApartmentFormAddressSearch({ preserveFocus: true });
+    }
+  });
+
+  sidebar.addEventListener("click", (event) => {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-action]");
+    if (!target) return;
+
+    if (target.dataset.action === "select-apartment-address") {
+      selectApartmentAddress(Number(target.dataset.index));
+    }
+  });
 }
 
 function bindMapAddressSearchEvents() {
