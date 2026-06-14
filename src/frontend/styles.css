@@ -713,6 +713,82 @@ textarea {
   background: var(--accent);
 }
 
+.address-search {
+  position: relative;
+}
+
+.address-input-wrap {
+  position: relative;
+}
+
+.address-input-wrap input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.address-suggestions {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  display: none;
+}
+
+.address-suggestions.is-open {
+  display: block;
+}
+
+.address-option {
+  display: flex;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.address-option + .address-option {
+  border-top: 1px solid var(--line);
+}
+
+.address-option:hover,
+.address-option.is-active {
+  background: var(--surface-2);
+}
+
+.address-option-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.address-option-copy strong {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.address-option-copy small {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: normal;
+}
+
+.address-search-status {
+  padding: 18px 14px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .map-fallback {
   display: grid;
   place-items: center;

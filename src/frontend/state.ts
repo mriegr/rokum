@@ -49,6 +49,12 @@ export type AppState = BootstrapPayload & {
   mapAddressSearchStatus: MapAddressSearchStatus;
   mapAddressActiveSuggestionIndex: number;
   mapAddressSelection: MapAddressSuggestion | null;
+  apartmentAddressQuery: string;
+  apartmentAddressSuggestions: MapAddressSuggestion[];
+  apartmentAddressSuggestionsOpen: boolean;
+  apartmentAddressSearchStatus: MapAddressSearchStatus;
+  apartmentAddressActiveSuggestionIndex: number;
+  apartmentAddressSelection: MapAddressSuggestion | null;
   visiblePoiCategories: Record<StandardPoiCategory, boolean>;
   showPoiList: boolean;
   selectedSportTags: string[];
@@ -132,6 +138,12 @@ export const state: AppState = {
   mapAddressSearchStatus: "idle",
   mapAddressActiveSuggestionIndex: -1,
   mapAddressSelection: null,
+  apartmentAddressQuery: "",
+  apartmentAddressSuggestions: [],
+  apartmentAddressSuggestionsOpen: false,
+  apartmentAddressSearchStatus: "idle",
+  apartmentAddressActiveSuggestionIndex: -1,
+  apartmentAddressSelection: null,
   visiblePoiCategories: {
     supermarket: true,
     sport_studio: true,
