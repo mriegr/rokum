@@ -610,31 +610,31 @@ async function fetchMapBinary(app: AppState, url: string, inflightKey: string) {
   }
 }
 
-function rewriteTileTemplate(template: string, origin: string) {
+function rewriteTileTemplate(template: string) {
   const assetId = registerMapAsset("tile", template);
-  return `${origin}/api/map/tiles/${assetId}/{z}/{x}/{y}.pbf`;
+  return `/api/map/tiles/${assetId}/{z}/{x}/{y}.pbf`;
 }
 
-function rewriteSourceUrl(url: string, origin: string) {
+function rewriteSourceUrl(url: string) {
   const assetId = registerMapAsset("source", url);
-  return `${origin}/api/map/sources/${assetId}.json`;
+  return `/api/map/sources/${assetId}.json`;
 }
 
-function rewriteGlyphTemplate(template: string, origin: string) {
+function rewriteGlyphTemplate(template: string) {
   const assetId = registerMapAsset("glyph", template);
-  return `${origin}/api/map/glyphs/${assetId}/{fontstack}/{range}.pbf`;
+  return `/api/map/glyphs/${assetId}/{fontstack}/{range}.pbf`;
 }
 
-function rewriteSpriteBase(url: string, origin: string) {
+function rewriteSpriteBase(url: string) {
   const assetId = registerMapAsset("sprite", url);
-  return `${origin}/api/map/sprites/${assetId}`;
+  return `/api/map/sprites/${assetId}`;
 }
 
-async function resolveJawgSource(source: Record<string, unknown>, app: AppState, origin: string) {
+async function resolveJawgSource(source: Record<string, unknown>, app: AppState) {
   if (Array.isArray(source.tiles)) {
     source.tiles = source.tiles.map((value) =>
       typeof value === "string" && isAllowedJawgUrl(value)
-        ? rewriteTileTemplate(value, origin)
+        ? rewriteTileTemplate(value)
         : value,
     );
     return source;
@@ -653,7 +653,7 @@ async function resolveJawgSource(source: Record<string, unknown>, app: AppState,
   source.tiles = Array.isArray(payload.tiles)
     ? payload.tiles.map((value) =>
         typeof value === "string" && isAllowedJawgUrl(value)
-          ? rewriteTileTemplate(value, origin)
+          ? rewriteTileTemplate(value)
           : value,
       )
     : source.tiles;
@@ -668,30 +668,30 @@ async function resolveJawgSource(source: Record<string, unknown>, app: AppState,
   return source;
 }
 
-async function rewriteStylePayload(style: Record<string, unknown>, app: AppState, origin: string) {
+async function rewriteStylePayload(style: Record<string, unknown>, app: AppState) {
   if (style.sources && typeof style.sources === "object") {
     const entries = Object.entries(style.sources as Record<string, Record<string, unknown>>);
     const resolved = await Promise.all(
       entries.map(async ([sourceId, source]) => [
         sourceId,
-        await resolveJawgSource(source, app, origin),
+        await resolveJawgSource(source, app),
       ]),
     );
     style.sources = Object.fromEntries(resolved);
   }
 
   if (typeof style.glyphs === "string" && isAllowedJawgUrl(style.glyphs)) {
-    style.glyphs = rewriteGlyphTemplate(style.glyphs, origin);
+    style.glyphs = rewriteGlyphTemplate(style.glyphs);
   }
 
   if (typeof style.sprite === "string" && isAllowedJawgUrl(style.sprite)) {
-    style.sprite = rewriteSpriteBase(style.sprite, origin);
+    style.sprite = rewriteSpriteBase(style.sprite);
   }
 
   if (Array.isArray(style.sprite)) {
     style.sprite = style.sprite.map((value) =>
       typeof value === "string" && isAllowedJawgUrl(value)
-        ? rewriteSpriteBase(value, origin)
+        ? rewriteSpriteBase(value)
         : value,
     );
   }
@@ -699,7 +699,7 @@ async function rewriteStylePayload(style: Record<string, unknown>, app: AppState
   if (style.metadata && typeof style.metadata === "object") {
     for (const [key, value] of Object.entries(style.metadata as Record<string, unknown>)) {
       if (typeof value === "string" && isAllowedJawgUrl(value)) {
-        (style.metadata as Record<string, unknown>)[key] = rewriteSourceUrl(value, origin);
+        (style.metadata as Record<string, unknown>)[key] = rewriteSourceUrl(value);
       }
     }
   }
@@ -707,7 +707,16 @@ async function rewriteStylePayload(style: Record<string, unknown>, app: AppState
   return style;
 }
 
-export async function serveMapStyle(app: AppState, requestUrl: string) {
+export function getTrustedOrigin(request: Request) {
+  const proto = request.headers.get("X-Forwarded-Proto")?.toLowerCase();
+  if (proto === "https") {
+    const host = request.headers.get("X-Forwarded-Host") ?? request.headers.get("Host") ?? "localhost";
+    return `https://${host}`;
+  }
+  return new URL(request.url).origin;
+}
+
+export async function serveMapStyle(app: AppState, _origin: string) {
   if (!app.config.jawgApiKey) {
     return new Response("Map API configuration is missing.", { status: 503 });
   }
@@ -721,7 +730,7 @@ export async function serveMapStyle(app: AppState, requestUrl: string) {
   }
 
   const payload = (await upstream.json()) as Record<string, unknown>;
-  const rewritten = await rewriteStylePayload(payload, app, new URL(requestUrl).origin);
+  const rewritten = await rewriteStylePayload(payload, app);
 
   return Response.json(rewritten, {
     headers: forwardJsonHeaders(upstream.headers),

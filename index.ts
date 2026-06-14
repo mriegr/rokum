@@ -13,6 +13,7 @@ import {
   getPoiIcons,
   getPoiManagementPayload,
   getSettings,
+  getTrustedOrigin,
   initApp,
   refreshApartmentScores,
   searchMapAddressSuggestions,
@@ -94,7 +95,7 @@ Bun.serve({
       }
 
       if (pathname === "/api/map/style.json" && method === "GET") {
-        return await serveMapStyle(app, request.url);
+        return await serveMapStyle(app, getTrustedOrigin(request));
       }
 
       const mapTileMatch = pathname.match(/^\/api\/map\/tiles\/([a-f0-9]+)\/(\d+)\/(\d+)\/(\d+)\.pbf$/);

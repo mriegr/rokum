@@ -7,6 +7,7 @@ import {
   getBootstrapPayload,
   getPoiCategoryManagementPayload,
   getPoiManagementPayload,
+  getTrustedOrigin,
   serveUploadFile,
   serveMapStyle,
   serveMapTile,
@@ -87,17 +88,17 @@ test("style proxy rewrites Jawg asset URLs to local endpoints", async () => {
     })
   ) as unknown as typeof fetch;
 
-  const response = await serveMapStyle(createApp(), "http://localhost:3000/api/map/style.json");
+  const response = await serveMapStyle(createApp(), "http://localhost:3000");
   expect(response.status).toBe(200);
 
   const payload = await response.json();
   expect(payload.sources.jawg.tiles[0]).toMatch(
-    /^http:\/\/localhost:3000\/api\/map\/tiles\/[a-f0-9]+\/\{z\}\/\{x\}\/\{y\}\.pbf$/,
+    /^\/api\/map\/tiles\/[a-f0-9]+\/\{z\}\/\{x\}\/\{y\}\.pbf$/,
   );
   expect(payload.glyphs).toMatch(
-    /^http:\/\/localhost:3000\/api\/map\/glyphs\/[a-f0-9]+\/\{fontstack\}\/\{range\}\.pbf$/,
+    /^\/api\/map\/glyphs\/[a-f0-9]+\/\{fontstack\}\/\{range\}\.pbf$/,
   );
-  expect(payload.sprite).toMatch(/^http:\/\/localhost:3000\/api\/map\/sprites\/[a-f0-9]+$/);
+  expect(payload.sprite).toMatch(/^\/api\/map\/sprites\/[a-f0-9]+$/);
   expect(JSON.stringify(payload)).not.toContain("secret-token");
   expect(JSON.stringify(payload)).not.toContain("https://tile.jawg.io");
 });
@@ -131,11 +132,11 @@ test("tile proxy deduplicates concurrent upstream requests", async () => {
 
   const styleResponse = await serveMapStyle(
     createApp(),
-    "http://localhost:3000/api/map/style.json",
+    "http://localhost:3000",
   );
   const payload = await styleResponse.json();
   const tileUrl = String(payload.sources.jawg.tiles[0]);
-  const assetId = tileUrl.match(/^http:\/\/localhost:3000\/api\/map\/tiles\/([a-f0-9]+)\//)?.[1];
+  const assetId = tileUrl.match(/^\/api\/map\/tiles\/([a-f0-9]+)\//)?.[1];
 
   expect(assetId).toBeTruthy();
 
@@ -154,9 +155,41 @@ test("tile proxy deduplicates concurrent upstream requests", async () => {
 test("style proxy returns 503 when the map API is not configured", async () => {
   const response = await serveMapStyle(
     createApp({ jawgApiKey: null }),
-    "http://localhost:3000/api/map/style.json",
+    "http://localhost:3000",
   );
   expect(response.status).toBe(503);
+});
+
+test("getTrustedOrigin yields request URL origin when X-Forwarded-Proto is missing", () => {
+  const origin = getTrustedOrigin(
+    new Request("http://localhost:3000/api/map/style.json"),
+  );
+  expect(origin).toBe("http://localhost:3000");
+});
+
+test("getTrustedOrigin uses https when X-Forwarded-Proto is https", () => {
+  const origin = getTrustedOrigin(
+    new Request("http://localhost:3000/api/map/style.json", {
+      headers: {
+        "X-Forwarded-Proto": "https",
+        Host: "rokum.blim.us",
+      },
+    }),
+  );
+  expect(origin).toBe("https://rokum.blim.us");
+});
+
+test("getTrustedOrigin uses X-Forwarded-Host when available", () => {
+  const origin = getTrustedOrigin(
+    new Request("http://localhost:3000/api/map/style.json", {
+      headers: {
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-Host": "example.com",
+        Host: "localhost:3000",
+      },
+    }),
+  );
+  expect(origin).toBe("https://example.com");
 });
 
 test("map address search rejects queries shorter than three characters", async () => {
