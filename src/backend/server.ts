@@ -7,6 +7,8 @@ import {
   deleteApartmentPhotoRecord,
   deleteApartmentRecord,
   deleteCustomPoiRecord,
+  clearMapPoiTravelCache,
+  getMapPoiTravelCache,
   listPoiCategoryLabels,
   deletePoiIcon,
   getApartmentById,
@@ -27,6 +29,7 @@ import {
   replaceApartmentPoiScores,
   saveWeightSettings,
   setApartmentScoring,
+  upsertMapPoiTravelCache,
   updateApartmentCoordinates,
   updateApartmentRecord,
   updateCustomPoiCoordinates,
@@ -59,6 +62,8 @@ import {
   seedSportStudioIcons,
   seedSportStudios,
   storeUploadedPhotos,
+  weekdayWorkHourTransitReference,
+  nearbyPois,
 } from "./services";
 import type {
   Apartment,
@@ -68,12 +73,15 @@ import type {
   AppConfig,
   CustomPoi,
   MapConfig,
+  TransitStop,
+  MapPoiListEntry,
   CustomPoiInput,
   ManagedPoi,
   ManagedPoiUpdateInput,
   PoiCategoryLabelRecord,
   PoiCategoryManagementPayload,
   MapPayload,
+  PoiRecord,
   PoiIconMapping,
   PoiManagementPayload,
   StandardPoiCategory,
@@ -94,6 +102,7 @@ const ALLOWED_POI_ICON_MIME_TYPES = new Set([
   "image/svg+xml",
 ]);
 const ALLOWED_POI_ICON_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "svg"]);
+const MAP_POI_LIST_CATEGORY_CANDIDATE_LIMIT = 20;
 
 type MapAssetKind = "tile" | "glyph" | "sprite" | "source";
 type MapAssetManifestEntry = {
@@ -293,6 +302,182 @@ function requirePoiStatusPayload(input: unknown) {
     isActive,
     items,
   };
+}
+
+function buildMapPoiListSortValue(entry: MapPoiListEntry) {
+  if (entry.walking.distanceMeters !== null) {
+    return entry.walking.distanceMeters;
+  }
+  if (entry.walking.durationMinutes !== null) {
+    return entry.walking.durationMinutes * 80;
+  }
+  if (entry.transit.durationMinutes !== null) {
+    return entry.transit.durationMinutes * 250;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+function walkingMetricsArePlausible(distanceMeters: number | null, durationMinutes: number | null) {
+  if (
+    distanceMeters === null ||
+    durationMinutes === null ||
+    !Number.isFinite(distanceMeters) ||
+    !Number.isFinite(durationMinutes) ||
+    durationMinutes <= 0
+  ) {
+    return false;
+  }
+
+  return distanceMeters / (durationMinutes * 60) <= 2.2;
+}
+
+function buildUbahnShortlistAddress(station: TransitStop) {
+  return station.routeRefs.length > 0
+    ? `Lines: ${station.routeRefs.join(", ")}`
+    : "U-Bahn station";
+}
+
+async function getCachedMapPoiTravel(
+  app: AppState,
+  apartment: Apartment,
+  poi: PoiRecord,
+  transitReference = weekdayWorkHourTransitReference(),
+  ubahnCandidates: Awaited<ReturnType<typeof ensurePoisForCategory>>,
+) {
+  const cached = getMapPoiTravelCache(app.database, apartment.id, poi.id, transitReference.scheduleKey);
+  if (
+    cached &&
+    Number(cached.apartment_latitude) === apartment.latitude &&
+    Number(cached.apartment_longitude) === apartment.longitude &&
+    Number(cached.poi_latitude) === poi.latitude &&
+    Number(cached.poi_longitude) === poi.longitude &&
+    walkingMetricsArePlausible(
+      cached.walking_distance_meters === null ? null : Number(cached.walking_distance_meters),
+      cached.walking_duration_minutes === null ? null : Number(cached.walking_duration_minutes),
+    )
+  ) {
+    return {
+      walking: {
+        distanceMeters: cached.walking_distance_meters === null ? null : Number(cached.walking_distance_meters),
+        durationMinutes: cached.walking_duration_minutes === null ? null : Number(cached.walking_duration_minutes),
+        source: String(cached.walking_source),
+      },
+      transit: {
+        distanceMeters: cached.transit_distance_meters === null ? null : Number(cached.transit_distance_meters),
+        durationMinutes: cached.transit_duration_minutes === null ? null : Number(cached.transit_duration_minutes),
+        source: String(cached.transit_source),
+      },
+    };
+  }
+
+  const origin = {
+    latitude: apartment.latitude!,
+    longitude: apartment.longitude!,
+  };
+  const destination = {
+    latitude: poi.latitude,
+    longitude: poi.longitude,
+  };
+  const walking = await routeWalking(app.config, origin, destination);
+  const transit = await routeTransit(app.config, origin, destination, ubahnCandidates, transitReference);
+
+  upsertMapPoiTravelCache(app.database, {
+    apartmentId: apartment.id,
+    poiId: poi.id,
+    scheduleKey: transitReference.scheduleKey,
+    apartmentLatitude: apartment.latitude!,
+    apartmentLongitude: apartment.longitude!,
+    poiLatitude: poi.latitude,
+    poiLongitude: poi.longitude,
+    walking,
+    transit,
+  });
+
+  return { walking, transit };
+}
+
+async function buildMapPoiList(
+  app: AppState,
+  apartment: Apartment,
+  ubahnStations: TransitStop[],
+) {
+  if (apartment.latitude === null || apartment.longitude === null) {
+    return [] as MapPoiListEntry[];
+  }
+
+  const origin = {
+    latitude: apartment.latitude,
+    longitude: apartment.longitude,
+  };
+  const transitReference = weekdayWorkHourTransitReference();
+  const ubahnCandidates = await ensurePoisForCategory(app.database, app.config, "ubahn", origin);
+  const activePois = listActivePois(app.database);
+  const candidates = STANDARD_CATEGORIES.flatMap((category) =>
+    nearbyPois(
+      activePois.filter((poi) => poi.category === category),
+      origin,
+      Number.POSITIVE_INFINITY,
+      MAP_POI_LIST_CATEGORY_CANDIDATE_LIMIT,
+    ),
+  );
+
+  const results: MapPoiListEntry[] = [];
+  for (const poi of candidates) {
+    const travel = await getCachedMapPoiTravel(
+      app,
+      apartment,
+      poi,
+      transitReference,
+      ubahnCandidates,
+    );
+    results.push({
+      key: `poi:${poi.id}`,
+      kind: "standard",
+      id: poi.id,
+      category: poi.category,
+      subcategory: poi.subcategory,
+      name: poi.name,
+      address: poi.address,
+      latitude: poi.latitude,
+      longitude: poi.longitude,
+      tags: poi.tags,
+      walking: travel.walking,
+      transit: travel.transit,
+    });
+  }
+
+  const nearestUbahnStation = ubahnStations
+    .map((station) => ({
+      station,
+      distance: Math.hypot(station.latitude - origin.latitude, station.longitude - origin.longitude),
+    }))
+    .sort((left, right) => left.distance - right.distance)[0]?.station;
+
+  if (nearestUbahnStation) {
+    const destination = {
+      latitude: nearestUbahnStation.latitude,
+      longitude: nearestUbahnStation.longitude,
+    };
+    const walking = await routeWalking(app.config, origin, destination);
+    const transit = await routeTransit(app.config, origin, destination, []);
+    results.push({
+      key: `ubahn-station:${nearestUbahnStation.id}`,
+      kind: "ubahn",
+      id: nearestUbahnStation.id,
+      category: "ubahn",
+      subcategory: "Station",
+      name: nearestUbahnStation.name,
+      address: buildUbahnShortlistAddress(nearestUbahnStation),
+      latitude: nearestUbahnStation.latitude,
+      longitude: nearestUbahnStation.longitude,
+      tags: nearestUbahnStation.routeRefs,
+      walking,
+      transit,
+    });
+  }
+
+  results.sort((left, right) => buildMapPoiListSortValue(left) - buildMapPoiListSortValue(right));
+  return results;
 }
 
 function requireManagedPoiUpdateInput(input: unknown, kind: ManagedPoi["kind"]): ManagedPoiUpdateInput {
@@ -944,6 +1129,11 @@ export async function updateSettings(app: AppState, payload: unknown) {
   };
 }
 
+export function clearTravelTimeCache(app: AppState) {
+  clearMapPoiTravelCache(app.database);
+  return { ok: true };
+}
+
 export async function createApartment(app: AppState, payload: unknown) {
   const apartmentId = insertApartment(app.database, requireApartmentInput(payload));
   return await rescoreApartment(app, apartmentId);
@@ -1230,12 +1420,14 @@ export async function getApartmentMapData(
     apartment.latitude !== null && apartment.longitude !== null
       ? await fetchTransitMapOverlay(app.config)
       : { ubahnStations: [], ubahnRoutes: [] };
+  const poiList = await buildMapPoiList(app, apartment, transitOverlay.ubahnStations);
 
   return {
     apartment,
     standardPoiScores: scoring.standardPoiScores,
     customPoiScores: scoring.customPoiScores,
     nearbyPois,
+    poiList,
     sportStudioTags,
     ubahnStations: transitOverlay.ubahnStations,
     ubahnRoutes: transitOverlay.ubahnRoutes,

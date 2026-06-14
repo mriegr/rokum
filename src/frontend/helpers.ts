@@ -21,6 +21,10 @@ export function formatScore(value: number) {
   return `${value.toFixed(1)}/10`;
 }
 
+export function formatMinutes(value: number | null) {
+  return value === null ? "n/a" : `${value} min`;
+}
+
 export function scoreTone(value: number) {
   if (value >= 8) return "high";
   if (value >= 5) return "medium";

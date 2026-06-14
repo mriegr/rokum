@@ -7,6 +7,7 @@ import appShell from "./index.html";
 import {
   createDatabase,
   insertApartment,
+  insertOrIgnorePoi,
   setApartmentScoring,
   updateApartmentCoordinates,
 } from "../backend/db";
@@ -40,7 +41,10 @@ function createTestConfig(): AppConfig {
     uploadDirectory: "/tmp",
     nominatimBaseUrl: "https://example.test",
     overpassBaseUrl: "https://example.test",
+    walkingRouterMode: "osrm",
     walkingBaseUrl: "https://example.test",
+    walkingFallbackRouterMode: null,
+    walkingFallbackBaseUrl: null,
     transitBaseUrl: null,
     transitMode: "heuristic",
     jawgApiKey: "browser-test-token",
@@ -74,6 +78,58 @@ function createApp() {
   });
   updateApartmentCoordinates(database, apartmentId, 48.137154, 11.576124);
   setApartmentScoring(database, apartmentId, createScoringSnapshot());
+  insertOrIgnorePoi(database, {
+    category: "supermarket",
+    subcategory: "",
+    name: "Fresh Market",
+    address: "Valley 1",
+    isActive: true,
+    latitude: 48.138154,
+    longitude: 11.577124,
+    source: ["test"],
+    externalId: null,
+    tags: [],
+    note: "",
+  });
+  insertOrIgnorePoi(database, {
+    category: "sport_studio",
+    subcategory: "Running",
+    name: "Run Club",
+    address: "Valley 2",
+    isActive: true,
+    latitude: 48.139154,
+    longitude: 11.578124,
+    source: ["test"],
+    externalId: null,
+    tags: ["Running"],
+    note: "",
+  });
+  insertOrIgnorePoi(database, {
+    category: "supermarket",
+    subcategory: "organic",
+    name: "Bio Market",
+    address: "Valley 3",
+    isActive: true,
+    latitude: 48.147154,
+    longitude: 11.586124,
+    source: ["test"],
+    externalId: null,
+    tags: [],
+    note: "",
+  });
+  insertOrIgnorePoi(database, {
+    category: "sport_studio",
+    subcategory: "Yoga",
+    name: "Yoga Loft",
+    address: "Valley 4",
+    isActive: true,
+    latitude: 48.151154,
+    longitude: 11.591124,
+    source: ["test"],
+    externalId: null,
+    tags: ["Yoga"],
+    note: "",
+  });
 
   return {
     config,
@@ -139,6 +195,7 @@ beforeAll(async () => {
         routes: {
           "/": appShell,
           "/map": appShell,
+          "/settings": appShell,
         },
         async fetch(request) {
           const url = new URL(request.url);
@@ -167,6 +224,33 @@ beforeAll(async () => {
             const payload = await getApartmentMapData(app as any, Number(apartmentMapMatch[1]));
             return Response.json({
               ...payload,
+              poiList: [
+                ...payload.poiList,
+                {
+                  key: "ubahn-station:sendlinger-tor",
+                  kind: "ubahn",
+                  id: "sendlinger-tor",
+                  category: "ubahn",
+                  subcategory: "Station",
+                  name: "Sendlinger Tor",
+                  address: "Lines: U1, U2",
+                  latitude: 48.1375,
+                  longitude: 11.5765,
+                  tags: ["U1", "U2"],
+                  walking: { distanceMeters: 180, durationMinutes: 3, source: "osrm" },
+                  transit: { distanceMeters: 0, durationMinutes: 1, source: "heuristic" },
+                },
+              ],
+              ubahnStations: [
+                {
+                  id: "sendlinger-tor",
+                  name: "Sendlinger Tor",
+                  latitude: 48.1375,
+                  longitude: 11.5765,
+                  modes: ["U-Bahn"],
+                  routeRefs: ["U1", "U2"],
+                },
+              ],
               ubahnRoutes: [
                 {
                   id: "route-u2",
@@ -312,6 +396,37 @@ browserTest("map view renders without browser console errors", async () => {
     await page.getByRole("button", { name: "Clear searched address" }).click();
     expect(await page.locator("#map-address-input").inputValue()).toBe("");
     expect(await page.locator(".map-address-selection").count()).toBe(0);
+  } finally {
+    await browser.close();
+  }
+});
+
+browserTest("map poi shortlist keeps all markers but allows selecting a list row", async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    chromiumSandbox: false,
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/map`, { waitUntil: "networkidle" });
+    await page.locator(".maplibregl-canvas").waitFor();
+
+    const shortlistRows = page.locator('.poi-list [data-action="select-map-poi"]');
+    await page.getByRole("button", { name: "Walk" }).click();
+    await shortlistRows.first().waitFor();
+    expect(await shortlistRows.count()).toBe(5);
+    expect(await page.locator(".poi-group").count()).toBe(3);
+    expect((await page.locator(".poi-subcategory").allTextContents()).length).toBeGreaterThan(0);
+    await page.locator("#map-poi-category-limit").selectOption("all");
+    expect(await page.locator('label[for="map-poi-category-limit"] strong').textContent()).toContain("All");
+    await page.locator("#map-poi-max-transit").selectOption("15");
+    expect(await page.locator('label[for="map-poi-max-transit"] strong').textContent()).toContain("15 min");
+    expect(await shortlistRows.count()).toBeLessThan(5);
+
+    const firstRow = shortlistRows.first();
+    await firstRow.click();
+    expect(await firstRow.getAttribute("class")).toContain("is-selected");
   } finally {
     await browser.close();
   }

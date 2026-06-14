@@ -12,6 +12,8 @@ import {
   POI_SPIDER_LEG_LAYER_ID,
   POI_SPIDER_LEG_SOURCE_ID,
   POI_SOURCE_ID,
+  SELECTED_POI_LAYER_ID,
+  SELECTED_POI_SOURCE_ID,
   SEARCHED_ADDRESS_LAYER_ID,
   SEARCHED_ADDRESS_SOURCE_ID,
   UBAHN_LAYER_ID,
@@ -187,6 +189,27 @@ function syncPoiSources() {
 
   setSourceData(POI_SOURCE_ID, spiderfied.points);
   setSourceData(POI_SPIDER_LEG_SOURCE_ID, spiderfied.legs);
+  setSourceData(SELECTED_POI_SOURCE_ID, {
+    type: "FeatureCollection",
+    features:
+      state.selectedMapPoiKey === null
+        ? []
+        : state.selectedMapPoiKey.startsWith("poi:")
+          ? spiderfied.points.features.filter((feature) => feature.id === state.selectedMapPoiKey)
+          : state.selectedMapPoiKey.startsWith("ubahn-station:")
+            ? (state.mapPayload?.ubahnStations ?? [])
+                .filter((station) => `ubahn-station:${station.id}` === state.selectedMapPoiKey)
+                .map((station) => ({
+                  type: "Feature" as const,
+                  id: `selected:${station.id}`,
+                  geometry: {
+                    type: "Point" as const,
+                    coordinates: [station.longitude, station.latitude] as LngLatTuple,
+                  },
+                  properties: {},
+                }))
+            : [],
+  });
 }
 
 function bindMapInteractions() {
@@ -367,6 +390,10 @@ function addMapSourcesAndLayers() {
     type: "geojson",
     data: EMPTY_FEATURE_COLLECTION,
   });
+  map.addSource(SELECTED_POI_SOURCE_ID, {
+    type: "geojson",
+    data: EMPTY_FEATURE_COLLECTION,
+  });
   map.addSource(POI_SPIDER_LEG_SOURCE_ID, {
     type: "geojson",
     data: EMPTY_FEATURE_COLLECTION,
@@ -416,6 +443,18 @@ function addMapSourcesAndLayers() {
       "icon-size": 0.75,
       "icon-allow-overlap": true,
       "icon-ignore-placement": true,
+    },
+  });
+  map.addLayer({
+    id: SELECTED_POI_LAYER_ID,
+    type: "circle",
+    source: SELECTED_POI_SOURCE_ID,
+    paint: {
+      "circle-radius": 12,
+      "circle-color": "#f5c451",
+      "circle-opacity": 0.45,
+      "circle-stroke-color": "#9a6a00",
+      "circle-stroke-width": 2,
     },
   });
   map.addLayer({
@@ -473,6 +512,31 @@ function addMapSourcesAndLayers() {
   registerChainIcons().catch((err) =>
     console.error("Failed to load chain icons", err),
   );
+}
+
+export function focusMapPoi(poiKey: string) {
+  const poi = state.mapPayload?.poiList.find((entry) => entry.key === poiKey);
+  if (!poi) {
+    return;
+  }
+
+  state.selectedMapPoiKey = poiKey;
+  syncPoiSources();
+
+  if (!map) {
+    return;
+  }
+
+  map.easeTo({
+    center: [poi.longitude, poi.latitude],
+    duration: 250,
+  });
+
+  popup?.remove();
+  popup = new maplibregl.Popup({ closeButton: false, offset: 12 })
+    .setLngLat([poi.longitude, poi.latitude])
+    .setHTML(`<strong>${poi.name}</strong><br />${poi.address}<br />Walk ${poi.walking.durationMinutes ?? "n/a"} min<br />Transit ${poi.transit.durationMinutes ?? "n/a"} min`)
+    .addTo(map);
 }
 
 export function renderMap(options?: { preserveViewport?: boolean }) {

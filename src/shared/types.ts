@@ -1,6 +1,7 @@
 export const STANDARD_POI_CATEGORIES = ["supermarket", "sport_studio"] as const;
 
 export type StandardPoiCategory = (typeof STANDARD_POI_CATEGORIES)[number];
+export type MapPoiListCategory = StandardPoiCategory | "ubahn";
 
 export type PoiCategory = StandardPoiCategory | "custom";
 
@@ -118,9 +119,25 @@ export type MapPayload = {
   standardPoiScores: StandardPoiScore[];
   customPoiScores: CustomPoiScore[];
   nearbyPois: PoiRecord[];
+  poiList: MapPoiListEntry[];
   sportStudioTags: string[];
   ubahnStations: TransitStop[];
   ubahnRoutes: UbahnRoute[];
+};
+
+export type MapPoiListEntry = {
+  key: string;
+  kind: "standard" | "ubahn";
+  id: number | string;
+  category: MapPoiListCategory;
+  subcategory: string;
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  tags: string[];
+  walking: TravelMetrics;
+  transit: TravelMetrics;
 };
 
 export type TransitStop = {
@@ -221,7 +238,10 @@ export type AppConfig = {
   uploadDirectory: string;
   nominatimBaseUrl: string;
   overpassBaseUrl: string;
+  walkingRouterMode: "osrm" | "valhalla";
   walkingBaseUrl: string;
+  walkingFallbackRouterMode: "osrm" | "valhalla" | null;
+  walkingFallbackBaseUrl: string | null;
   transitBaseUrl: string | null;
   transitMode: "heuristic" | "otp1";
   jawgApiKey: string | null;

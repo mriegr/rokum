@@ -37,6 +37,14 @@ type Coordinates = {
   longitude: number;
 };
 
+type WalkingRouterMode = AppConfig["walkingRouterMode"];
+
+export type TransitReference = {
+  scheduleKey: string;
+  date: string;
+  time: string;
+};
+
 const STANDARD_RADIUS_METERS = 1800;
 const USER_AGENT = "rokum-apartment-shortlist/1.0";
 const OVERPASS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -85,6 +93,8 @@ function toRadians(value: number) {
   return (value * Math.PI) / 180;
 }
 
+const MAX_PLAUSIBLE_WALKING_SPEED_MPS = 2.2;
+
 export function haversineDistanceMeters(a: Coordinates, b: Coordinates) {
   const earthRadius = 6371000;
   const deltaLat = toRadians(b.latitude - a.latitude);
@@ -97,6 +107,21 @@ export function haversineDistanceMeters(a: Coordinates, b: Coordinates) {
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
 
   return earthRadius * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc));
+}
+
+function walkingMetricsArePlausible(distanceMeters: number | null, durationMinutes: number | null) {
+  if (
+    distanceMeters === null ||
+    durationMinutes === null ||
+    !Number.isFinite(distanceMeters) ||
+    !Number.isFinite(durationMinutes) ||
+    durationMinutes <= 0
+  ) {
+    return false;
+  }
+
+  const speedMetersPerSecond = distanceMeters / (durationMinutes * 60);
+  return speedMetersPerSecond <= MAX_PLAUSIBLE_WALKING_SPEED_MPS;
 }
 
 export function nearbyPois(
@@ -411,35 +436,131 @@ export async function routeWalking(
   from: Coordinates,
   to: Coordinates,
 ): Promise<TravelMetrics> {
-  try {
-    const url = new URL(
-      `${config.walkingBaseUrl}/route/v1/walking/${from.longitude},${from.latitude};${to.longitude},${to.latitude}`,
-    );
-    url.searchParams.set("overview", "false");
+  const providers: Array<{ mode: WalkingRouterMode; baseUrl: string }> = [
+    { mode: config.walkingRouterMode, baseUrl: config.walkingBaseUrl },
+  ];
 
-    const payload = await fetchJson<{
-      routes?: Array<{ distance: number; duration: number }>;
-    }>(url.toString());
-
-    const route = payload.routes?.[0];
-    if (!route) {
-      return { distanceMeters: null, durationMinutes: null, source: "osrm-missing" };
+  if (config.walkingFallbackRouterMode && config.walkingFallbackBaseUrl) {
+    const duplicateProvider =
+      config.walkingFallbackRouterMode === config.walkingRouterMode &&
+      config.walkingFallbackBaseUrl === config.walkingBaseUrl;
+    if (!duplicateProvider) {
+      providers.push({
+        mode: config.walkingFallbackRouterMode,
+        baseUrl: config.walkingFallbackBaseUrl,
+      });
     }
-
-    return {
-      distanceMeters: Math.round(route.distance),
-      durationMinutes: Math.round((route.duration / 60) * 10) / 10,
-      source: "osrm",
-    };
-  } catch (error) {
-    console.warn("Walking route lookup failed, using haversine fallback", error);
-    const distanceMeters = Math.round(haversineDistanceMeters(from, to) * 1.22);
-    return {
-      distanceMeters,
-      durationMinutes: Math.round((distanceMeters / 80) * 10) / 10,
-      source: "haversine",
-    };
   }
+
+  for (const provider of providers) {
+    try {
+      const result = await routeWalkingWithProvider(provider.mode, provider.baseUrl, from, to);
+      if (
+        result.distanceMeters !== null &&
+        result.durationMinutes !== null &&
+        !walkingMetricsArePlausible(result.distanceMeters, result.durationMinutes)
+      ) {
+        throw new Error(`Walking route duration is implausible for ${result.distanceMeters}m`);
+      }
+      return result;
+    } catch (error) {
+      console.warn(`Walking route lookup failed for ${provider.mode}, trying next fallback`, error);
+    }
+  }
+
+  const distanceMeters = Math.round(haversineDistanceMeters(from, to) * 1.22);
+  return {
+    distanceMeters,
+    durationMinutes: Math.round((distanceMeters / 80) * 10) / 10,
+    source: "haversine",
+  };
+}
+
+async function routeWalkingWithProvider(
+  mode: WalkingRouterMode,
+  baseUrl: string,
+  from: Coordinates,
+  to: Coordinates,
+): Promise<TravelMetrics> {
+  return mode === "valhalla"
+    ? routeWalkingWithValhalla(baseUrl, from, to)
+    : routeWalkingWithOsrm(baseUrl, from, to);
+}
+
+async function routeWalkingWithOsrm(
+  baseUrl: string,
+  from: Coordinates,
+  to: Coordinates,
+): Promise<TravelMetrics> {
+  const url = new URL(
+    `${baseUrl.replace(/\/$/, "")}/route/v1/walking/${from.longitude},${from.latitude};${to.longitude},${to.latitude}`,
+  );
+  url.searchParams.set("overview", "false");
+
+  const payload = await fetchJson<{
+    routes?: Array<{ distance: number; duration: number }>;
+  }>(url.toString());
+
+  const route = payload.routes?.[0];
+  if (!route) {
+    return { distanceMeters: null, durationMinutes: null, source: "osrm-missing" };
+  }
+
+  return {
+    distanceMeters: Math.round(route.distance),
+    durationMinutes: Math.round((route.duration / 60) * 10) / 10,
+    source: "osrm",
+  };
+}
+
+async function routeWalkingWithValhalla(
+  baseUrl: string,
+  from: Coordinates,
+  to: Coordinates,
+): Promise<TravelMetrics> {
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/route`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      locations: [
+        { lat: from.latitude, lon: from.longitude },
+        { lat: to.latitude, lon: to.longitude },
+      ],
+      costing: "pedestrian",
+      costing_options: {
+        pedestrian: {
+          walking_speed: 5.1,
+        },
+      },
+      directions_options: {
+        units: "kilometers",
+      },
+      units: "kilometers",
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Remote request failed: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as {
+    trip?: {
+      summary?: {
+        length?: number;
+        time?: number;
+      };
+    };
+  };
+
+  const summary = payload.trip?.summary;
+  if (summary?.length == null || summary.time == null) {
+    return { distanceMeters: null, durationMinutes: null, source: "valhalla-missing" };
+  }
+
+  return {
+    distanceMeters: Math.round(summary.length * 1000),
+    durationMinutes: Math.round((summary.time / 60) * 10) / 10,
+    source: "valhalla",
+  };
 }
 
 function heuristicTransitEstimate(
@@ -470,6 +591,7 @@ export async function routeTransit(
   from: Coordinates,
   to: Coordinates,
   ubahnCandidates: PoiRecord[],
+  reference?: TransitReference,
 ): Promise<TravelMetrics> {
   if (config.transitMode === "otp1" && config.transitBaseUrl) {
     const url = new URL(`${config.transitBaseUrl.replace(/\/$/, "")}/plan`);
@@ -477,6 +599,10 @@ export async function routeTransit(
     url.searchParams.set("toPlace", `${to.latitude},${to.longitude}`);
     url.searchParams.set("mode", "TRANSIT,WALK");
     url.searchParams.set("numItineraries", "1");
+    if (reference) {
+      url.searchParams.set("date", reference.date);
+      url.searchParams.set("time", reference.time);
+    }
 
     try {
       const payload = await fetchJson<{
@@ -501,6 +627,24 @@ export async function routeTransit(
   }
 
   return heuristicTransitEstimate(from, to, ubahnCandidates);
+}
+
+export function weekdayWorkHourTransitReference(now = new Date()) {
+  const reference = new Date(now);
+  const day = reference.getDay();
+  const daysUntilWednesday = ((3 - day) + 7) % 7 || 7;
+  reference.setDate(reference.getDate() + daysUntilWednesday);
+  reference.setHours(9, 0, 0, 0);
+
+  const month = String(reference.getMonth() + 1).padStart(2, "0");
+  const date = String(reference.getDate()).padStart(2, "0");
+  const year = reference.getFullYear();
+
+  return {
+    scheduleKey: "weekday-09:00",
+    date: `${month}-${date}-${year}`,
+    time: "9:00am",
+  } satisfies TransitReference;
 }
 
 export async function seedSportStudios(database: Database) {

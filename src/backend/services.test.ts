@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getPoiIcon, upsertPoiIcon } from "./db";
-import { fetchTransitMapOverlay, searchMapAddresses, seedSportStudioIcons } from "./services";
+import { fetchTransitMapOverlay, routeWalking, searchMapAddresses, seedSportStudioIcons } from "./services";
 import type { AppConfig } from "../shared/types";
 
 const originalFetch = globalThis.fetch;
@@ -17,7 +17,10 @@ function createConfig(): AppConfig {
     uploadDirectory: "/tmp",
     nominatimBaseUrl: "https://example.test",
     overpassBaseUrl: `https://overpass-${randomUUID()}.example.test`,
+    walkingRouterMode: "osrm",
     walkingBaseUrl: "https://example.test",
+    walkingFallbackRouterMode: null,
+    walkingFallbackBaseUrl: null,
     transitBaseUrl: null,
     transitMode: "heuristic",
     jawgApiKey: "test-token",
@@ -211,6 +214,101 @@ test("searchMapAddresses does not use autocomplete cache after the stale window"
   } finally {
     Date.now = dateNow;
   }
+});
+
+test("routeWalking falls back when provider returns an implausibly fast walking duration", async () => {
+  const config = createConfig();
+
+  globalThis.fetch = mock(async () =>
+    Response.json({
+      routes: [
+        {
+          distance: 1256.6,
+          duration: 145.4,
+        },
+      ],
+    })
+  ) as unknown as typeof fetch;
+
+  const result = await routeWalking(
+    config,
+    { latitude: 48.1844196, longitude: 11.5287892 },
+    { latitude: 48.1782496, longitude: 11.5376579 },
+  );
+
+  expect(result.source).toBe("haversine");
+  expect(result.distanceMeters).toBeGreaterThan(1000);
+  expect(result.durationMinutes).toBeGreaterThan(10);
+});
+
+test("routeWalking supports valhalla pedestrian routing", async () => {
+  const config = createConfig();
+  config.walkingRouterMode = "valhalla";
+
+  globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+    expect(init?.method).toBe("POST");
+    expect(init?.headers).toEqual({ "content-type": "application/json" });
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    expect(body.costing).toBe("pedestrian");
+    expect(body.locations).toEqual([
+      { lat: 48.1844196, lon: 11.5287892 },
+      { lat: 48.1782496, lon: 11.5376579 },
+    ]);
+
+    return Response.json({
+      trip: {
+        summary: {
+          length: 1.26,
+          time: 960,
+        },
+      },
+    });
+  }) as unknown as typeof fetch;
+
+  const result = await routeWalking(
+    config,
+    { latitude: 48.1844196, longitude: 11.5287892 },
+    { latitude: 48.1782496, longitude: 11.5376579 },
+  );
+
+  expect(result).toEqual({
+    distanceMeters: 1260,
+    durationMinutes: 16,
+    source: "valhalla",
+  });
+});
+
+test("routeWalking uses configured fallback provider before haversine", async () => {
+  const config = createConfig();
+  config.walkingRouterMode = "valhalla";
+  config.walkingFallbackRouterMode = "osrm";
+  config.walkingFallbackBaseUrl = "https://fallback.example.test";
+
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "https://example.test/route") {
+      return new Response("upstream unavailable", { status: 503 });
+    }
+    if (url.startsWith("https://fallback.example.test/route/v1/walking/")) {
+      expect(init?.method).toBeUndefined();
+      return Response.json({
+        routes: [{ distance: 1260, duration: 960 }],
+      });
+    }
+    throw new Error(`Unexpected request ${url}`);
+  }) as unknown as typeof fetch;
+
+  const result = await routeWalking(
+    config,
+    { latitude: 48.1844196, longitude: 11.5287892 },
+    { latitude: 48.1782496, longitude: 11.5376579 },
+  );
+
+  expect(result).toEqual({
+    distanceMeters: 1260,
+    durationMinutes: 16,
+    source: "osrm",
+  });
 });
 
 test("fetchTransitMapOverlay normalizes ubahn route colors for map rendering", async () => {

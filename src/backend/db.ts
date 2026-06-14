@@ -10,6 +10,7 @@ import type {
   CustomPoiScore,
   PoiCategoryLabelRecord,
   PoiIconRecord,
+  TravelMetrics,
   PoiRecord,
   StandardPoiCategory,
   StandardPoiScore,
@@ -232,6 +233,24 @@ export function createDatabase(config: AppConfig) {
       label TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE(category, subcategory)
+    );
+
+    CREATE TABLE IF NOT EXISTS map_poi_travel_cache (
+      apartment_id INTEGER NOT NULL REFERENCES apartments(id) ON DELETE CASCADE,
+      poi_id INTEGER NOT NULL REFERENCES pois(id) ON DELETE CASCADE,
+      schedule_key TEXT NOT NULL,
+      apartment_latitude REAL NOT NULL,
+      apartment_longitude REAL NOT NULL,
+      poi_latitude REAL NOT NULL,
+      poi_longitude REAL NOT NULL,
+      walking_distance_meters REAL,
+      walking_duration_minutes REAL,
+      walking_source TEXT NOT NULL,
+      transit_distance_meters REAL,
+      transit_duration_minutes REAL,
+      transit_source TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(apartment_id, poi_id, schedule_key)
     );
   `);
 
@@ -676,6 +695,94 @@ export function listActivePois(database: SqlDatabase) {
   return (database
     .query("SELECT * FROM pois WHERE is_active = 1")
     .all() as Record<string, unknown>[]).map(mapPoi);
+}
+
+export function getMapPoiTravelCache(
+  database: SqlDatabase,
+  apartmentId: number,
+  poiId: number,
+  scheduleKey: string,
+) {
+  return (database
+    .query(
+      `
+        SELECT *
+        FROM map_poi_travel_cache
+        WHERE apartment_id = ?1
+          AND poi_id = ?2
+          AND schedule_key = ?3
+      `,
+    )
+    .get(apartmentId, poiId, scheduleKey) ?? null) as Record<string, unknown> | null;
+}
+
+export function upsertMapPoiTravelCache(
+  database: SqlDatabase,
+  input: {
+    apartmentId: number;
+    poiId: number;
+    scheduleKey: string;
+    apartmentLatitude: number;
+    apartmentLongitude: number;
+    poiLatitude: number;
+    poiLongitude: number;
+    walking: TravelMetrics;
+    transit: TravelMetrics;
+  },
+) {
+  database
+    .query(
+      `
+        INSERT INTO map_poi_travel_cache (
+          apartment_id,
+          poi_id,
+          schedule_key,
+          apartment_latitude,
+          apartment_longitude,
+          poi_latitude,
+          poi_longitude,
+          walking_distance_meters,
+          walking_duration_minutes,
+          walking_source,
+          transit_distance_meters,
+          transit_duration_minutes,
+          transit_source,
+          updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+        ON CONFLICT(apartment_id, poi_id, schedule_key) DO UPDATE SET
+          apartment_latitude = excluded.apartment_latitude,
+          apartment_longitude = excluded.apartment_longitude,
+          poi_latitude = excluded.poi_latitude,
+          poi_longitude = excluded.poi_longitude,
+          walking_distance_meters = excluded.walking_distance_meters,
+          walking_duration_minutes = excluded.walking_duration_minutes,
+          walking_source = excluded.walking_source,
+          transit_distance_meters = excluded.transit_distance_meters,
+          transit_duration_minutes = excluded.transit_duration_minutes,
+          transit_source = excluded.transit_source,
+          updated_at = excluded.updated_at
+      `,
+    )
+    .run(
+      input.apartmentId,
+      input.poiId,
+      input.scheduleKey,
+      input.apartmentLatitude,
+      input.apartmentLongitude,
+      input.poiLatitude,
+      input.poiLongitude,
+      input.walking.distanceMeters,
+      input.walking.durationMinutes,
+      input.walking.source,
+      input.transit.distanceMeters,
+      input.transit.durationMinutes,
+      input.transit.source,
+      now(),
+    );
+}
+
+export function clearMapPoiTravelCache(database: SqlDatabase) {
+  database.query("DELETE FROM map_poi_travel_cache").run();
 }
 
 export function updatePoiActiveState(

@@ -30,7 +30,10 @@ function createTestConfig() {
     uploadDirectory: "/tmp",
     nominatimBaseUrl: "https://example.test",
     overpassBaseUrl: "https://example.test",
+    walkingRouterMode: "osrm" as const,
     walkingBaseUrl: "https://example.test",
+    walkingFallbackRouterMode: null,
+    walkingFallbackBaseUrl: null,
     transitBaseUrl: null,
     transitMode: "heuristic" as const,
     jawgApiKey: "browser-test-token",
@@ -137,6 +140,7 @@ beforeAll(async () => {
           "/": appShell,
           "/pois": appShell,
           "/map": appShell,
+          "/settings": appShell,
         },
         async fetch(request) {
           const url = new URL(request.url);

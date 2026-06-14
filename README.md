@@ -30,7 +30,10 @@ DB_PATH=./data/rokum.sqlite
 UPLOAD_DIR=./data/uploads
 NOMINATIM_BASE_URL=https://nominatim.openstreetmap.org
 OVERPASS_BASE_URL=https://overpass-api.de/api/interpreter
+WALKING_ROUTER_MODE=osrm
 WALKING_ROUTER_BASE_URL=https://router.project-osrm.org
+WALKING_ROUTER_FALLBACK_MODE=
+WALKING_ROUTER_FALLBACK_BASE_URL=
 TRANSIT_MODE=heuristic
 TRANSIT_BASE_URL=
 JAWG_API=
@@ -46,6 +49,19 @@ BASIC_AUTH_HASH='replace-with-bcrypt-hash'
 ```
 
 `TRANSIT_MODE=otp1` and `TRANSIT_BASE_URL` can be used if you have an OpenTripPlanner-compatible `/plan` endpoint. Otherwise the app uses a transit-time heuristic based on distance and U-Bahn access.
+
+For the best long-term routing stack, use `Valhalla` for walking, `OSRM` as a walking fallback, and `OTP` for transit:
+
+```bash
+WALKING_ROUTER_MODE=valhalla
+WALKING_ROUTER_BASE_URL=http://your-valhalla-host:8002
+WALKING_ROUTER_FALLBACK_MODE=osrm
+WALKING_ROUTER_FALLBACK_BASE_URL=http://your-osrm-host:5000
+TRANSIT_MODE=otp1
+TRANSIT_BASE_URL=http://your-otp-host:8080/otp
+```
+
+Rokum tries the primary walking provider first, then the configured fallback walking provider, and finally a local haversine estimate if both fail or return implausible walking speeds.
 
 Set `JAWG_API` to enable the vector map view and its Jawg Places address autocomplete. If it is missing, Rokum keeps the map tab visible but shows a disabled-state message instead of loading map services.
 

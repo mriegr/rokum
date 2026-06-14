@@ -14,6 +14,7 @@ import {
   getPoiManagementPayload,
   getSettings,
   getTrustedOrigin,
+  clearTravelTimeCache,
   initApp,
   refreshApartmentScores,
   searchMapAddressSuggestions,
@@ -59,6 +60,7 @@ Bun.serve({
     "/map": appShell,
     "/pois": appShell,
     "/categories": appShell,
+    "/settings": appShell,
   },
   ...(isProduction
     ? {}
@@ -140,6 +142,10 @@ Bun.serve({
       if (pathname === "/api/settings" && method === "PUT") {
         const payload = await request.json();
         return json(await updateSettings(app, payload));
+      }
+
+      if (pathname === "/api/settings/travel-time-cache" && method === "DELETE") {
+        return json(clearTravelTimeCache(app));
       }
 
       if (pathname === "/api/pois" && method === "GET") {

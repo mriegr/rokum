@@ -135,6 +135,7 @@ export function combinedPoiFeatureCollection() {
   } satisfies FeatureCollection;
 }
 
+
 export function spiderfyPoiFeatureCollection(
   featureCollection: FeatureCollection,
   options: {

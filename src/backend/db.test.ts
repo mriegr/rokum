@@ -5,12 +5,15 @@ import { randomUUID } from "node:crypto";
 import {
   bulkUpdatePoiActiveState,
   createDatabase,
+  clearMapPoiTravelCache,
+  getMapPoiTravelCache,
   insertCustomPoi,
   insertOrIgnorePoi,
   listActivePois,
   listActivePoisByCategory,
   listCustomPois,
   listPoiCategoryLabels,
+  upsertMapPoiTravelCache,
   upsertPoiCategoryLabel,
 } from "./db";
 import type { AppConfig } from "../shared/types";
@@ -33,7 +36,10 @@ function createTestConfig(): AppConfig {
     uploadDirectory: "/tmp",
     nominatimBaseUrl: "https://example.test",
     overpassBaseUrl: "https://example.test",
+    walkingRouterMode: "osrm",
     walkingBaseUrl: "https://example.test",
+    walkingFallbackRouterMode: null,
+    walkingFallbackBaseUrl: null,
     transitBaseUrl: null,
     transitMode: "heuristic",
     jawgApiKey: null,
@@ -117,4 +123,77 @@ test("category labels can be stored for categories and subcategories", () => {
     { category: "supermarket", subcategory: "", label: "Groceries" },
     { category: "supermarket", subcategory: "edeka", label: "EDEKA stores" },
   ]);
+});
+
+test("map poi travel cache stores and reloads walking and transit metrics", () => {
+  const database = createDatabase(createTestConfig());
+
+  insertOrIgnorePoi(database, {
+    category: "supermarket",
+    subcategory: "",
+    name: "Cached market",
+    address: "Street 1",
+    isActive: true,
+    latitude: 48.1,
+    longitude: 11.5,
+    source: ["test"],
+    externalId: null,
+    tags: [],
+    note: "",
+  });
+
+  upsertMapPoiTravelCache(database, {
+    apartmentId: 11,
+    poiId: listActivePois(database)[0]!.id,
+    scheduleKey: "weekday-09:00",
+    apartmentLatitude: 48.12,
+    apartmentLongitude: 11.52,
+    poiLatitude: 48.1,
+    poiLongitude: 11.5,
+    walking: { distanceMeters: 1200, durationMinutes: 15, source: "osrm" },
+    transit: { distanceMeters: 500, durationMinutes: 9, source: "otp1" },
+  });
+
+  expect(getMapPoiTravelCache(database, 11, listActivePois(database)[0]!.id, "weekday-09:00")).toMatchObject({
+    walking_distance_meters: 1200,
+    walking_duration_minutes: 15,
+    walking_source: "osrm",
+    transit_distance_meters: 500,
+    transit_duration_minutes: 9,
+    transit_source: "otp1",
+  });
+});
+
+test("map poi travel cache can be cleared", () => {
+  const database = createDatabase(createTestConfig());
+
+  insertOrIgnorePoi(database, {
+    category: "supermarket",
+    subcategory: "",
+    name: "Cached market",
+    address: "Street 1",
+    isActive: true,
+    latitude: 48.1,
+    longitude: 11.5,
+    source: ["test"],
+    externalId: null,
+    tags: [],
+    note: "",
+  });
+
+  upsertMapPoiTravelCache(database, {
+    apartmentId: 11,
+    poiId: listActivePois(database)[0]!.id,
+    scheduleKey: "weekday-09:00",
+    apartmentLatitude: 48.12,
+    apartmentLongitude: 11.52,
+    poiLatitude: 48.1,
+    poiLongitude: 11.5,
+    walking: { distanceMeters: 1200, durationMinutes: 15, source: "osrm" },
+    transit: { distanceMeters: 500, durationMinutes: 9, source: "otp1" },
+  });
+
+  clearMapPoiTravelCache(database);
+
+  expect(getMapPoiTravelCache(database, 11, listActivePois(database)[0]!.id, "weekday-09:00")).toBeNull();
 });

@@ -2,6 +2,7 @@ import type {
   Apartment,
   BootstrapPayload,
   CustomPoi,
+  MapPoiListCategory,
   MapPayload,
   ManagedPoi,
   PoiCategoryManagementPayload,
@@ -48,12 +49,14 @@ import {
   renderPoiToolbar,
   renderCategoriesView,
   renderPoisView,
+  renderSettingsView,
   renderTopbar,
   updateMapAddressSearch,
   updateMapSidebar,
 } from "./views";
 import {
   destroyMap,
+  focusMapPoi,
   focusSearchedAddress,
   renderMap,
 } from "./map";
@@ -90,7 +93,9 @@ export function render() {
             ? renderMapView()
             : state.activeView === "pois"
               ? renderPoisView()
-              : renderCategoriesView()
+              : state.activeView === "categories"
+                ? renderCategoriesView()
+                : renderSettingsView()
       }
     </div>
   `;
@@ -127,6 +132,8 @@ function bindEvents() {
               ? "pois"
               : target.dataset.view === "categories"
                 ? "categories"
+                : target.dataset.view === "settings"
+                  ? "settings"
               : "list";
         state.activeView = view;
         window.history.replaceState(
@@ -138,6 +145,8 @@ function bindEvents() {
               ? "/pois"
               : view === "categories"
                 ? "/categories"
+                : view === "settings"
+                  ? "/settings"
                 : "/",
         );
         if (view === "pois") {
@@ -155,6 +164,11 @@ function bindEvents() {
       if (action === "show-panel") {
         state.panelView = target.dataset.panel as PanelView;
         render();
+      }
+
+      if (action === "reset-travel-time-cache") {
+        if (!window.confirm("Reset cached POI travel times?")) return;
+        await requestJson("/api/settings/travel-time-cache", { method: "DELETE" });
       }
 
       if (action === "prepare-create-apartment") {
@@ -447,12 +461,14 @@ export async function loadMapPayload(apartmentId: number) {
   if (!mapIsAvailable(state.mapConfig)) {
     state.mapPayload = null;
     state.selectedApartmentId = apartmentId;
+    state.selectedMapPoiKey = null;
     render();
     return;
   }
 
   state.mapPayload = await requestJson<MapPayload>(`/api/apartments/${apartmentId}/map`);
   state.selectedApartmentId = apartmentId;
+  state.selectedMapPoiKey = null;
   if (state.activeView === "map" && document.querySelector(".map-sidebar")) {
     updateMapSidebar();
     const sidebar = document.querySelector<HTMLElement>(".map-sidebar");
@@ -1187,6 +1203,20 @@ export function bindMapSidebarEvents(sidebar: HTMLElement) {
         bindMapSidebarEvents(sidebar);
         renderMap({ preserveViewport: true });
       }
+
+      if (action === "sort-map-pois") {
+        state.mapPoiListSortMode = target.dataset.sort === "walk" ? "walk" : "transit";
+        updateMapSidebar();
+        bindMapSidebarEvents(sidebar);
+      }
+
+      if (action === "select-map-poi") {
+        const poiKey = String(target.dataset.poiKey ?? "");
+        if (!poiKey) return;
+        focusMapPoi(poiKey);
+        updateMapSidebar();
+        bindMapSidebarEvents(sidebar);
+      }
     });
   });
 
@@ -1194,12 +1224,35 @@ export function bindMapSidebarEvents(sidebar: HTMLElement) {
     .querySelectorAll<HTMLInputElement>('input[data-action="toggle-poi-category"]')
     .forEach((input) => {
       input.addEventListener("change", () => {
-        const category = input.dataset.category as StandardPoiCategory | undefined;
+        const category = input.dataset.category as MapPoiListCategory | undefined;
         if (!category) return;
         state.visiblePoiCategories[category] = input.checked;
         updateMapSidebar();
         bindMapSidebarEvents(sidebar);
         renderMap({ preserveViewport: true });
+      });
+    });
+
+  sidebar
+    .querySelectorAll<HTMLSelectElement>('select[data-action="set-map-poi-max-transit"]')
+    .forEach((select) => {
+      select.addEventListener("change", () => {
+        const nextValue = Number(select.value);
+        if (!Number.isFinite(nextValue)) return;
+        state.mapPoiListMaxTransitMinutes = nextValue;
+        updateMapSidebar();
+        bindMapSidebarEvents(sidebar);
+      });
+    });
+
+  sidebar
+    .querySelectorAll<HTMLSelectElement>('select[data-action="set-map-poi-category-limit"]')
+    .forEach((select) => {
+      select.addEventListener("change", () => {
+        const value = select.value;
+        state.mapPoiCategoryLimit = value === "10" ? 10 : value === "all" ? "all" : 5;
+        updateMapSidebar();
+        bindMapSidebarEvents(sidebar);
       });
     });
 

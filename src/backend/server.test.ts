@@ -2,9 +2,10 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createDatabase } from "./db";
+import { createDatabase, insertApartment, insertOrIgnorePoi, setApartmentScoring, updateApartmentCoordinates } from "./db";
 import {
   getBootstrapPayload,
+  getApartmentMapData,
   getPoiCategoryManagementPayload,
   getPoiManagementPayload,
   getTrustedOrigin,
@@ -28,7 +29,10 @@ function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     uploadDirectory: "/tmp",
     nominatimBaseUrl: "https://example.test",
     overpassBaseUrl: "https://example.test",
+    walkingRouterMode: "osrm",
     walkingBaseUrl: "https://example.test",
+    walkingFallbackRouterMode: null,
+    walkingFallbackBaseUrl: null,
     transitBaseUrl: null,
     transitMode: "heuristic",
     jawgApiKey: "secret-token",
@@ -403,5 +407,77 @@ test("managed POI updates custom metadata while retaining custom semantics", asy
     category: "custom",
     subcategory: "",
     isActive: false,
+  });
+});
+
+test("map payload keeps all nearby pois and keeps ranked shortlist entries", async () => {
+  const config = createAppConfig();
+  databasePaths.push(config.databasePath);
+  const database = createDatabase(config);
+  const app = { config, database } as any;
+  const apartmentId = insertApartment(database, {
+    address: "Apartment",
+    squareMeters: 70,
+    kaltmiete: 1200,
+    warmmiete: 1350,
+    floorLevel: "2",
+    roomCount: 2,
+    description: "",
+  });
+  updateApartmentCoordinates(database, apartmentId, 48.137, 11.575);
+  setApartmentScoring(database, apartmentId, {
+    pricePerSqm: 0,
+    roomScore: 0,
+    pricePerSqmValue: null,
+    standardPoiScores: [],
+    customPoiScores: [],
+    totalScore: 0,
+    updatedAt: new Date().toISOString(),
+  });
+
+  insertOrIgnorePoi(database, {
+    category: "supermarket",
+    subcategory: "",
+    name: "Near market",
+    address: "Street 1",
+    isActive: true,
+    latitude: 48.138,
+    longitude: 11.576,
+    source: ["test"],
+    externalId: null,
+    tags: [],
+    note: "",
+  });
+  insertOrIgnorePoi(database, {
+    category: "supermarket",
+    subcategory: "",
+    name: "Far market",
+    address: "Street 2",
+    isActive: true,
+    latitude: 48.18,
+    longitude: 11.63,
+    source: ["test"],
+    externalId: null,
+    tags: [],
+    note: "",
+  });
+
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/route/v1/walking/")) {
+      return Response.json({
+        routes: [{ distance: url.includes("48.18") ? 6000 : 800, duration: url.includes("48.18") ? 4800 : 600 }],
+      });
+    }
+    return Response.json({ elements: [] });
+  }) as unknown as typeof fetch;
+
+  const payload = await getApartmentMapData(app, apartmentId);
+
+  expect(payload.nearbyPois.map((poi) => poi.name)).toEqual(["Near market", "Far market"]);
+  expect(payload.poiList.map((poi) => poi.name)).toEqual(["Near market", "Far market"]);
+  expect(payload.poiList[0]).toMatchObject({
+    walking: { durationMinutes: 10 },
+    transit: { source: "heuristic" },
   });
 });

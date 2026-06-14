@@ -1,8 +1,9 @@
 import type { Apartment, ManagedPoi, StandardPoiCategory, WeightSettings } from "../shared/types";
+import type { MapPoiListCategory } from "../shared/types";
 import {
   categoryDisplayLabel,
   filteredManagedPois,
-  groupedVisiblePois,
+  groupedVisiblePoiList,
   isCategoryExpanded,
   managedPoiCategoryLabel,
   MANAGED_POI_CATEGORY_ORDER,
@@ -13,6 +14,7 @@ import {
   state,
   standardPoiLabel,
   sortedApartments,
+  visiblePoiList,
   visibleManagedPoiSelectionState,
   visibleNearbyPois,
 } from "./state";
@@ -21,6 +23,7 @@ import {
   customPoiDefaults,
   escapeHtml,
   formatCurrency,
+  formatMinutes,
   formatScore,
   mapIsAvailable,
   scoreTone,
@@ -50,6 +53,7 @@ export function renderTopbar() {
         <button class="tab ${state.activeView === "map" ? "is-active" : ""}" data-action="switch-view" data-view="map">Map</button>
         <button class="tab ${state.activeView === "pois" ? "is-active" : ""}" data-action="switch-view" data-view="pois">POIs</button>
         <button class="tab ${state.activeView === "categories" ? "is-active" : ""}" data-action="switch-view" data-view="categories">Categories</button>
+        <button class="tab ${state.activeView === "settings" ? "is-active" : ""}" data-action="switch-view" data-view="settings">Settings</button>
       </nav>
     </header>
   `;
@@ -289,6 +293,65 @@ export function renderSettingsForm() {
           .join("")}
         <button class="primary-button" type="submit">Save weights</button>
       </form>
+    </section>
+  `;
+}
+
+export function renderSettingsView() {
+  return `
+    <section class="content-shell settings-shell">
+      <div class="settings-hero">
+        <div>
+          <p class="eyebrow">Settings</p>
+          <h2>Scoring and routing</h2>
+          <p>Adjust apartment weights and clear cached POI travel times when the routing source changes.</p>
+        </div>
+      </div>
+      <div class="settings-grid">
+        <section class="panel-shell">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Global weights</p>
+              <h3>Scoring balance</h3>
+            </div>
+          </div>
+          <form id="settings-form" class="stack">
+            ${[
+              ["pricePerSqm", "Price per m²"],
+              ["rooms", "Rooms"],
+              ["supermarket", "Supermarket"],
+              ["sportStudio", "Sport studio"],
+              ["customPoi", "Custom places"],
+            ]
+              .map(
+                ([key, label]) => `
+                  <label>
+                    ${label}
+                    <input name="${key}" type="number" min="0" step="0.1" value="${
+                      state.settings[key as keyof WeightSettings]
+                    }" />
+                  </label>
+                `,
+              )
+              .join("")}
+            <button class="primary-button" type="submit">Save weights</button>
+          </form>
+        </section>
+        <section class="panel-shell">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Travel cache</p>
+              <h3>Reset POI travel-time cache</h3>
+            </div>
+          </div>
+          <p class="panel-copy">
+            Clears cached walking and transit metrics for map shortlist POIs. The cache is rebuilt automatically on the next map load.
+          </p>
+          <button class="ghost-button danger" data-action="reset-travel-time-cache" type="button">
+            Reset travel-time cache
+          </button>
+        </section>
+      </div>
     </section>
   `;
 }
@@ -975,7 +1038,7 @@ export function renderMapLegend() {
           </div>
           <div class="toggle-grid">
             ${(
-              Object.keys(POI_LABELS) as StandardPoiCategory[]
+              Object.keys(POI_LABELS) as MapPoiListCategory[]
             ).map(
               (category) => `
                 <label class="filter-toggle">
@@ -1100,29 +1163,105 @@ export function renderMapLegend() {
           ? `
             <div class="poi-list-block">
               <div class="panel-block-head">
-                <strong>Visible POIs</strong>
-                <span>${visibleNearbyPois().length}</span>
+                <strong>POI shortlist</strong>
+                <span>${visiblePoiList().length}</span>
+              </div>
+              <div class="poi-list-toolbar">
+                <span class="poi-list-caption">Visible POIs within transit cap</span>
+                <div class="poi-sort-toggle" role="tablist" aria-label="POI sort order">
+                  <button
+                    class="ghost-button compact-button ${state.mapPoiListSortMode === "transit" ? "is-active" : ""}"
+                    data-action="sort-map-pois"
+                    data-sort="transit"
+                    type="button"
+                  >
+                    Transit
+                  </button>
+                  <button
+                    class="ghost-button compact-button ${state.mapPoiListSortMode === "walk" ? "is-active" : ""}"
+                    data-action="sort-map-pois"
+                    data-sort="walk"
+                    type="button"
+                  >
+                    Walk
+                  </button>
+                </div>
+              </div>
+              <div class="poi-list-filters">
+                <label class="poi-time-filter" for="map-poi-max-transit">
+                  <span>Max transit time</span>
+                  <strong>${state.mapPoiListMaxTransitMinutes} min</strong>
+                </label>
+                <select
+                  id="map-poi-max-transit"
+                  class="poi-time-select"
+                  data-action="set-map-poi-max-transit"
+                >
+                  ${Array.from({ length: 10 }, (_, index) => 15 + index * 5)
+                    .map(
+                      (minutes) => `
+                        <option value="${minutes}" ${minutes === state.mapPoiListMaxTransitMinutes ? "selected" : ""}>
+                          ${minutes} min
+                        </option>
+                      `,
+                    )
+                    .join("")}
+                </select>
+                <label class="poi-time-filter" for="map-poi-category-limit">
+                  <span>Max items per category</span>
+                  <strong>${state.mapPoiCategoryLimit === "all" ? "All" : state.mapPoiCategoryLimit}</strong>
+                </label>
+                <select
+                  id="map-poi-category-limit"
+                  class="poi-time-select"
+                  data-action="set-map-poi-category-limit"
+                >
+                  <option value="5" ${state.mapPoiCategoryLimit === 5 ? "selected" : ""}>5</option>
+                  <option value="10" ${state.mapPoiCategoryLimit === 10 ? "selected" : ""}>10</option>
+                  <option value="all" ${state.mapPoiCategoryLimit === "all" ? "selected" : ""}>All</option>
+                </select>
               </div>
               <div class="poi-list">
                 ${
-                  visibleNearbyPois().length
-                    ? Array.from(groupedVisiblePois().entries())
+                  visiblePoiList().length
+                    ? Array.from(groupedVisiblePoiList().entries())
                         .map(
                           ([category, pois]) => `
                             <section class="poi-group">
-                              <h3>${standardPoiLabel(category)}</h3>
+                              <div class="poi-group-head">
+                                <h3>${escapeHtml(standardPoiLabel(category))}</h3>
+                                <span>${pois.length}</span>
+                              </div>
                               ${pois
-                                .map(
-                                  (poi) => `
-                                    <article class="poi-row">
-                                      <div>
-                                        <strong>${escapeHtml(poi.name)}</strong>
-                                        <p>${escapeHtml(poi.address || "Address unavailable")}</p>
+                                .map((poi) => {
+                                  const subcategory = poi.subcategory
+                                    ? categoryDisplayLabel(poi.category, poi.subcategory, poi.subcategory)
+                                    : "";
+                                  return `
+                                    <article
+                                      class="poi-row ${state.selectedMapPoiKey === poi.key ? "is-selected" : ""}"
+                                      data-action="select-map-poi"
+                                      data-poi-key="${poi.key}"
+                                    >
+                                      <div class="poi-row-main">
+                                        <div class="poi-row-head">
+                                          <strong>${escapeHtml(poi.name)}</strong>
+                                          ${
+                                            subcategory
+                                              ? `<span class="poi-subcategory">${escapeHtml(subcategory)}</span>`
+                                              : ""
+                                          }
+                                        </div>
+                                        <p class="poi-row-address">${escapeHtml(poi.address || "Address unavailable")}</p>
+                                        <div class="poi-row-metrics">
+                                          <span>Transit ${formatMinutes(poi.transit.durationMinutes)}</span>
+                                          <span>Walk ${formatMinutes(poi.walking.durationMinutes)}</span>
+                                        </div>
                                       </div>
                                       ${
                                         poi.category === "sport_studio" && poi.tags.length
                                           ? `<div class="poi-tags">${poi.tags
-                                              .slice(0, 3)
+                                              .slice(0, 2)
                                               .map(
                                                 (tag) =>
                                                   `<span class="mini-tag">${escapeHtml(tag)}</span>`,
@@ -1131,8 +1270,8 @@ export function renderMapLegend() {
                                           : ""
                                       }
                                     </article>
-                                  `,
-                                )
+                                  `;
+                                })
                                 .join("")}
                             </section>
                           `,

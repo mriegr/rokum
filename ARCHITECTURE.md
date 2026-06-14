@@ -78,13 +78,16 @@ Important consequence: apartment rows store both normalized apartment data and a
 - standard POI scores
 - custom POI scores
 - nearby active POIs
+- a ranked POI sidebar list with cached travel metrics
 - sport studio tags for filter chips
 - transit stops
 - U-Bahn route geometry
 
 The map view should treat this payload as the source of truth for the focused apartment.
 
-POI overlap handling is client-side. The map does not cluster POIs. Instead, `map.ts` computes a screen-space spiderfy layout for only the POIs that would visually overlap at the current zoom, then draws thin connector legs from the displaced icon back to the original coordinate.
+The map keeps all active POIs visible as markers. The sidebar is a separate shortlist that shows the currently visible standard POIs after applying category filters, sport-tag filters, and the client-side max-transit dropdown. The backend precomputes and sorts a larger candidate set and attaches cached walking plus weekday-workhour transit metrics for each sidebar row, but it does not impose a separate category-specific transit cap.
+
+POI overlap handling is client-side. The map does not cluster POIs. Instead, `map.ts` computes a screen-space spiderfy layout for only the POIs that would visually overlap at the current zoom, then draws thin connector legs from the displaced icon back to the original coordinate. Sidebar selection highlights the corresponding marker through a dedicated overlay so the highlight follows the spiderfied point.
 
 ### POI management
 
@@ -223,13 +226,18 @@ Important consequence: `sport_studio` is special. It is not fetched from Overpas
 
 ### Walking routes
 
-- Provider: OSRM-compatible `/route/v1/walking/...`
+- Preferred provider: Valhalla `/route` with `pedestrian` costing
+- Supported alternative: OSRM-compatible `/route/v1/walking/...`
+- Optional secondary walking provider is attempted before local fallback
+- Provider responses are sanity-checked against a maximum plausible walking speed before being cached or displayed
 - Fallback: haversine distance times a walking multiplier
+- Map sidebar shortlist walking results are persisted per apartment and POI to avoid rerunning route lookups on every map open
 
 ### Transit routes
 
 - Preferred provider: OTP1-compatible `/plan` when configured
 - Default mode: heuristic estimate based on direct distance and U-Bahn proximity
+- Map sidebar shortlist transit uses a fixed representative weekday-workhour slot, Wednesday at 09:00 local time, cached under a stable `weekday-09:00` key so repeated map opens reuse the same route result
 
 ### Transit overlay
 
