@@ -15,7 +15,6 @@ export DEPLOY_PATH='/opt/apps/rokum'
 export TRAEFIK_PATH='/opt/traefik'
 export ACME_EMAIL='<certificate-contact-email>'
 export BASIC_AUTH_USER='<basic-auth-user>'
-export SSH_TARGET="$VPS_USER@$VPS_HOST"
 ```
 
 Load `BASIC_AUTH_PASSWORD` only when it is needed, preferably from a password
@@ -104,7 +103,7 @@ The VPS needs:
 Verify the current host:
 
 ```bash
-ssh "$SSH_TARGET" \
+ssh "$SSH_USER@$SSH_HOST" \
   'docker version && docker compose version && rsync --version && id'
 ```
 
@@ -115,7 +114,7 @@ Logging out and back in is required after adding a user to the `docker` group.
 Create the shared network once:
 
 ```bash
-ssh "$SSH_TARGET" \
+ssh "$SSH_USER@$SSH_HOST" \
   'docker network inspect proxy >/dev/null 2>&1 || docker network create proxy'
 ```
 
@@ -173,9 +172,9 @@ storage and start Traefik:
 
 ```bash
 printf 'ACME_EMAIL=%s\n' "$ACME_EMAIL" | \
-  ssh "$SSH_TARGET" "umask 077; cat > '$TRAEFIK_PATH/.env'"
+  ssh "$SSH_USER@$SSH_HOST" "umask 077; cat > '$TRAEFIK_PATH/.env'"
 
-ssh "$SSH_TARGET" "TRAEFIK_PATH='$TRAEFIK_PATH' bash -s" <<'REMOTE'
+ssh "$SSH_USER@$SSH_HOST" "TRAEFIK_PATH='$TRAEFIK_PATH' bash -s" <<'REMOTE'
 set -euo pipefail
 cd "$TRAEFIK_PATH"
 mkdir -p letsencrypt
@@ -196,7 +195,7 @@ matches the current server, but a tested immutable digest is safer.
 Create the deployment and persistent-data directories:
 
 ```bash
-ssh "$SSH_TARGET" \
+ssh "$SSH_USER@$SSH_HOST" \
   "mkdir -p '$DEPLOY_PATH/data/backups' && chmod 700 '$DEPLOY_PATH/data' '$DEPLOY_PATH/data/backups'"
 ```
 
@@ -322,15 +321,15 @@ Sync code while preserving production state:
 rsync -az --delete \
   --exclude-from '.dockerignore' \
   --exclude '.env' \
-  ./ "$SSH_TARGET:$DEPLOY_PATH/"
+  ./ "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
 
-scp .env "$SSH_TARGET:$DEPLOY_PATH/.env.next"
+scp .env "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/.env.next"
 ```
 
 Validate, back up, and deploy:
 
 ```bash
-ssh "$SSH_TARGET" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
+ssh "$SSH_USER@$SSH_HOST" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
 set -euo pipefail
 cd "$DEPLOY_PATH"
 chmod 600 .env.next
@@ -360,11 +359,11 @@ curl --fail-with-body -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASSWORD" \
   "https://$APP_DOMAIN/healthz"
 
 # App is healthy and attached only to the proxy network.
-ssh "$SSH_TARGET" \
+ssh "$SSH_USER@$SSH_HOST" \
   "cd '$DEPLOY_PATH' && docker compose -f docker-compose.prod.yml ps"
 
 # Only Traefik, not Bun, is listening publicly.
-ssh "$SSH_TARGET" \
+ssh "$SSH_USER@$SSH_HOST" \
   'sudo ss -ltnp | grep -E ":(80|443|3000)\\b"'
 ```
 
@@ -379,8 +378,8 @@ Expected results:
 Also inspect Traefik and app logs:
 
 ```bash
-ssh "$SSH_TARGET" 'docker logs --tail 100 traefik'
-ssh "$SSH_TARGET" \
+ssh "$SSH_USER@$SSH_HOST" 'docker logs --tail 100 traefik'
+ssh "$SSH_USER@$SSH_HOST" \
   "cd '$DEPLOY_PATH' && docker compose -f docker-compose.prod.yml logs --tail 100 app"
 ```
 
@@ -389,7 +388,7 @@ ssh "$SSH_TARGET" \
 ### Status and logs
 
 ```bash
-ssh "$SSH_TARGET" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
+ssh "$SSH_USER@$SSH_HOST" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
 cd "$DEPLOY_PATH"
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f --tail 100 app
@@ -400,7 +399,7 @@ REMOTE
 ### Restart
 
 ```bash
-ssh "$SSH_TARGET" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
+ssh "$SSH_USER@$SSH_HOST" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
 cd "$DEPLOY_PATH"
 docker compose -f docker-compose.prod.yml restart app
 docker compose -f docker-compose.prod.yml ps
@@ -418,7 +417,7 @@ The next deployment replaces the bcrypt hash.
 Update Traefik independently from Rokum:
 
 ```bash
-ssh "$SSH_TARGET" "TRAEFIK_PATH='$TRAEFIK_PATH' bash -s" <<'REMOTE'
+ssh "$SSH_USER@$SSH_HOST" "TRAEFIK_PATH='$TRAEFIK_PATH' bash -s" <<'REMOTE'
 cd "$TRAEFIK_PATH"
 docker compose pull
 docker compose config --quiet
@@ -440,7 +439,7 @@ directory, not only SQLite.
 Create an on-host SQLite backup:
 
 ```bash
-ssh "$SSH_TARGET" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
+ssh "$SSH_USER@$SSH_HOST" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
 cd "$DEPLOY_PATH"
 docker compose -f docker-compose.prod.yml exec -T app bun run backup:db
 ls -lh data/backups
@@ -450,13 +449,13 @@ REMOTE
 Create an off-host backup:
 
 ```bash
-rsync -a "$SSH_TARGET:$DEPLOY_PATH/data/" ./rokum-data-backup/
+rsync -a "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/data/" ./rokum-data-backup/
 ```
 
 Restore a SQLite backup:
 
 ```bash
-ssh "$SSH_TARGET" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
+ssh "$SSH_USER@$SSH_HOST" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
 set -euo pipefail
 cd "$DEPLOY_PATH"
 docker compose -f docker-compose.prod.yml stop app
@@ -475,14 +474,14 @@ off-host backup generation.
 List locally retained image versions:
 
 ```bash
-ssh "$SSH_TARGET" \
+ssh "$SSH_USER@$SSH_HOST" \
   'docker images rokum --format "{{.Repository}}:{{.Tag}} {{.CreatedSince}}"'
 ```
 
 Set `APP_VERSION` in `$DEPLOY_PATH/.env` to a previous commit SHA, then run:
 
 ```bash
-ssh "$SSH_TARGET" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
+ssh "$SSH_USER@$SSH_HOST" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'REMOTE'
 cd "$DEPLOY_PATH"
 docker compose -f docker-compose.prod.yml up -d --no-build --remove-orphans --wait --wait-timeout 120
 REMOTE
@@ -522,7 +521,7 @@ database backup when the release included an incompatible migration.
 The container runs as UID/GID 1000. Repair ownership and permissions:
 
 ```bash
-ssh "$SSH_TARGET" \
+ssh "$SSH_USER@$SSH_HOST" \
   "sudo chown -R 1000:1000 '$DEPLOY_PATH/data' && sudo chmod 700 '$DEPLOY_PATH/data'"
 ```
 
