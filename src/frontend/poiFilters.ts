@@ -77,6 +77,32 @@ export function filterIndexedManagedPois(
   });
 }
 
+export type PoiViewportSlice = {
+  startIndex: number;
+  endIndex: number;
+  topSpacerHeight: number;
+  bottomSpacerHeight: number;
+};
+
+export function poiTableWindowedSlice(
+  totalRows: number,
+  scrollOffset: number,
+  viewportHeight: number,
+  rowHeight: number,
+  overscan: number,
+): PoiViewportSlice {
+  if (totalRows === 0 || viewportHeight <= 0 || rowHeight <= 0) {
+    return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 };
+  }
+
+  const startIndex = Math.max(0, Math.floor(scrollOffset / rowHeight) - overscan);
+  const endIndex = Math.min(totalRows, Math.ceil((scrollOffset + viewportHeight) / rowHeight) + overscan);
+  const topSpacerHeight = startIndex * rowHeight;
+  const bottomSpacerHeight = Math.max(0, totalRows * rowHeight - endIndex * rowHeight);
+
+  return { startIndex, endIndex, topSpacerHeight, bottomSpacerHeight };
+}
+
 export function summarizePoiCategories(pois: ManagedPoi[]) {
   const summaries = new Map<PoiCategory, { total: number; active: number }>();
 

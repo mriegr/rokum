@@ -14,6 +14,7 @@ import type {
 import type { MapAddressSuggestion, PanelView, SortMode } from "./state";
 import {
   categoryDisplayLabel,
+  filteredManagedPois,
   isCategoryExpanded,
   MANAGED_POI_CATEGORY_ORDER,
   poiIconKey,
@@ -22,6 +23,7 @@ import {
   selectedManagedPois,
   state,
   visibleManagedPoiKeys,
+  visibleManagedPoiSelectionState,
 } from "./state";
 import {
   escapeHtml,
@@ -29,10 +31,18 @@ import {
   requestJson,
 } from "./helpers";
 import {
+  poiTableWindowedSlice,
+} from "./poiFilters";
+import {
+  POI_TABLE_ROW_HEIGHT,
+  POI_TABLE_OVERSCAN,
+} from "./state";
+import {
   renderListView,
   renderMapLegend,
   renderMapView,
   renderPoiControls,
+  renderPoiRow,
   renderPoiStats,
   renderPoiTable,
   renderPoiToolbar,
@@ -645,9 +655,12 @@ export function updatePoiRegions(options?: { controls?: boolean }) {
     return;
   }
 
+  const pois = filteredManagedPois();
+  const selection = visibleManagedPoiSelectionState();
+
   const toolbarRegion = document.querySelector<HTMLElement>("#poi-toolbar-region");
   if (toolbarRegion) {
-    toolbarRegion.innerHTML = renderPoiToolbar();
+    toolbarRegion.innerHTML = renderPoiToolbar(pois, selection);
   }
 
   const statsRegion = document.querySelector<HTMLElement>("#poi-stats-region");
@@ -664,8 +677,10 @@ export function updatePoiRegions(options?: { controls?: boolean }) {
 
   const tableRegion = document.querySelector<HTMLElement>("#poi-table-region");
   if (tableRegion) {
-    tableRegion.innerHTML = renderPoiTable();
+    tableRegion.innerHTML = renderPoiTable(pois, selection);
   }
+
+  syncPoiTableViewport();
 }
 
 export function schedulePoiSearchUpdate() {
@@ -675,8 +690,91 @@ export function schedulePoiSearchUpdate() {
 
   poiSearchUpdateTimer = window.setTimeout(() => {
     poiSearchUpdateTimer = null;
+    state.poiTableScrollTop = 0;
     updatePoiRegions();
   }, 120);
+}
+
+let poiTableScrollRaf: number | null = null;
+
+function updatePoiTableRows() {
+  const viewport = document.querySelector<HTMLElement>(".poi-table-viewport");
+  if (!viewport) return;
+
+  const pois = filteredManagedPois();
+  if (!pois.length) return;
+
+  const slice = poiTableWindowedSlice(
+    pois.length,
+    state.poiTableScrollTop,
+    viewport.clientHeight || 600,
+    POI_TABLE_ROW_HEIGHT,
+    POI_TABLE_OVERSCAN,
+  );
+
+  const selectedKeys = new Set(state.selectedManagedPoiKeys);
+  const rowsHtml = pois
+    .slice(slice.startIndex, slice.endIndex)
+    .map((poi) => renderPoiRow(poi, selectedKeys))
+    .join("");
+
+  viewport.innerHTML = `
+    <div style="height:${slice.topSpacerHeight}px"></div>
+    <div class="poi-table" role="group" aria-label="POI list">
+      ${rowsHtml}
+    </div>
+    <div style="height:${slice.bottomSpacerHeight}px"></div>
+  `;
+
+  const selection = visibleManagedPoiSelectionState();
+  updatePoiSelectionBar(selection);
+}
+
+function updatePoiSelectionBar(selection: { total: number; selected: number; allSelected: boolean }) {
+  const selectAll = document.querySelector<HTMLInputElement>("#poi-select-all");
+  if (selectAll) {
+    selectAll.checked = selection.allSelected;
+    selectAll.disabled = !selection.total;
+  }
+  const selectedText = document.querySelector<HTMLElement>(".poi-selection-bar p");
+  if (selectedText) {
+    selectedText.textContent = `${selection.selected} selected`;
+  }
+}
+
+function updatePoiToolbarFromSelection() {
+  const pois = filteredManagedPois();
+  const selection = visibleManagedPoiSelectionState();
+  const toolbarRegion = document.querySelector<HTMLElement>("#poi-toolbar-region");
+  if (toolbarRegion) {
+    toolbarRegion.innerHTML = renderPoiToolbar(pois, selection);
+  }
+  updatePoiSelectionBar(selection);
+}
+
+function onPoiTableScroll() {
+  const viewport = document.querySelector<HTMLElement>(".poi-table-viewport");
+  if (!viewport) return;
+
+  state.poiTableScrollTop = viewport.scrollTop;
+
+  if (poiTableScrollRaf === null) {
+    poiTableScrollRaf = requestAnimationFrame(() => {
+      poiTableScrollRaf = null;
+      updatePoiTableRows();
+    });
+  }
+}
+
+function syncPoiTableViewport() {
+  const viewport = document.querySelector<HTMLElement>(".poi-table-viewport");
+  if (!viewport) return;
+
+  viewport.scrollTop = state.poiTableScrollTop;
+  state.poiTableViewportHeight = viewport.clientHeight;
+
+  viewport.removeEventListener("scroll", onPoiTableScroll);
+  viewport.addEventListener("scroll", onPoiTableScroll, { passive: true });
 }
 
 function poiStatusItemsFromKeys(keys: string[]) {
@@ -715,6 +813,8 @@ export function bindPoiAdminEvents() {
     return;
   }
 
+  syncPoiTableViewport();
+
   shell.addEventListener("input", (event) => {
     const input = event.target as HTMLInputElement | null;
     if (!input || input.id !== "poi-search") {
@@ -748,6 +848,7 @@ export function bindPoiAdminEvents() {
 
     if (input.id === "poi-status-filter") {
       state.poiStatusFilter = input.value as PoiStatusFilter;
+      state.poiTableScrollTop = 0;
       updatePoiRegions({ controls: true });
       return;
     }
@@ -767,7 +868,8 @@ export function bindPoiAdminEvents() {
       }
 
       state.selectedManagedPoiKeys = Array.from(selectedKeys);
-      updatePoiRegions();
+      updatePoiTableRows();
+      updatePoiToolbarFromSelection();
       return;
     }
 
@@ -780,7 +882,8 @@ export function bindPoiAdminEvents() {
       state.selectedManagedPoiKeys = input.checked
         ? [...new Set([...state.selectedManagedPoiKeys, key])]
         : state.selectedManagedPoiKeys.filter((value) => value !== key);
-      updatePoiRegions();
+      updatePoiTableRows();
+      updatePoiToolbarFromSelection();
       return;
     }
 
@@ -791,6 +894,7 @@ export function bindPoiAdminEvents() {
       }
 
       state.visibleManagedPoiCategories[category] = input.checked;
+      state.poiTableScrollTop = 0;
       updatePoiRegions({ controls: true });
       return;
     }
@@ -804,6 +908,7 @@ export function bindPoiAdminEvents() {
       state.selectedManagedSubcategories = input.checked
         ? [...new Set([...state.selectedManagedSubcategories, key])]
         : state.selectedManagedSubcategories.filter((value) => value !== key);
+      state.poiTableScrollTop = 0;
       updatePoiRegions({ controls: true });
       return;
     }
@@ -869,6 +974,7 @@ export function bindPoiAdminEvents() {
         custom: true,
       };
       state.selectedManagedSubcategories = [];
+      state.poiTableScrollTop = 0;
       updatePoiRegions({ controls: true });
       return;
     }
@@ -890,12 +996,14 @@ export function bindPoiAdminEvents() {
       for (const category of MANAGED_POI_CATEGORY_ORDER) {
         state.visibleManagedPoiCategories[category] = isVisible;
       }
+      state.poiTableScrollTop = 0;
       updatePoiRegions({ controls: true });
       return;
     }
 
     if (action === "clear-poi-subcategories") {
       state.selectedManagedSubcategories = [];
+      state.poiTableScrollTop = 0;
       updatePoiRegions({ controls: true });
     }
   });
@@ -923,6 +1031,13 @@ export function bindPoiAdminEvents() {
     state.editingManagedPoiKey = null;
     state.selectedManagedPoiKeys = [];
     await refreshAppData({ refreshMap: true, refreshPois: true });
+  });
+
+  window.addEventListener("resize", () => {
+    const viewport = document.querySelector<HTMLElement>(".poi-table-viewport");
+    if (viewport) {
+      state.poiTableViewportHeight = viewport.clientHeight;
+    }
   });
 }
 

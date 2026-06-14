@@ -69,6 +69,8 @@ export type AppState = BootstrapPayload & {
   categoryManagement: PoiCategoryManagementPayload | null;
   expandedCategoryKeys: string[];
   editingCategoryKey: string | null;
+  poiTableScrollTop: number;
+  poiTableViewportHeight: number;
 };
 
 export type LngLatTuple = [number, number];
@@ -151,6 +153,8 @@ export const state: AppState = {
   selectedManagedSubcategories: [],
   selectedManagedPoiKeys: [],
   editingManagedPoiKey: null,
+  poiTableScrollTop: 0,
+  poiTableViewportHeight: 0,
   managedPoiIcons: new Map(),
   poiCategoryLabelMap: new Map(),
   categoriesLoaded: false,
@@ -177,6 +181,10 @@ export const POI_LAYER_ID = "poi-layer";
 export const UBAHN_STATION_LAYER_ID = "ubahn-station-layer";
 export const UBAHN_LAYER_ID = "ubahn-layer";
 export const SEARCHED_ADDRESS_LAYER_ID = "searched-address-layer";
+
+export const POI_TABLE_ROW_HEIGHT = 60;
+
+export const POI_TABLE_OVERSCAN = 5;
 
 export const POI_LABELS: Record<StandardPoiCategory, string> = {
   supermarket: "Supermarkets",

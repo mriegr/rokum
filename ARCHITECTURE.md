@@ -257,15 +257,17 @@ Important consequence: browser code must never use direct third-party tile URLs.
 Production runs as a Docker Compose stack:
 
 - `app`: Bun process serving the UI, JSON API, uploads, and map proxy
-- `caddy`: public entrypoint for HTTPS and HTTP basic auth
+- `traefik`: separate host-level ingress stack that terminates HTTPS and applies HTTP basic auth
 
-Important consequence: the browser never talks directly to the Bun process. The reverse proxy protects the shell, `/api/...`, uploads, and map endpoints together.
+Important consequence: the browser never talks directly to the Bun process. Traefik protects the shell, `/api/...`, uploads, and map endpoints together through Docker labels on the app service.
 
 Operational notes:
 
 - `healthz` is the liveness endpoint for the stack
 - `scripts/backup-db.ts` writes a consistent SQLite snapshot with `VACUUM INTO`
-- GitHub Actions deploys to the VPS over SSH, updates `.env`, and runs `docker compose -f docker-compose.prod.yml up -d --build`
+- the app runs as UID/GID 1000 with a read-only root filesystem; only `/data` and the `/tmp` tmpfs are writable
+- GitHub Actions deploys to the VPS over SSH, backs up SQLite, builds a commit-SHA-tagged image, waits for container health, verifies Basic Auth, and restores the previous image configuration after a failed deployment
+- `DEPLOYMENT.md` is the operational source of truth for provisioning, deployment, verification, backup, restore, rollback, and security constraints
 
 ## Frontend structure
 
@@ -304,6 +306,16 @@ The POI management page has its own performance-sensitive path:
 - `poiFilters.ts` pre-indexes search text
 - search/filter/selection updates should rerender only the POI regions, not the entire app shell
 - typing in POI search must not trigger network traffic
+- the inventory table uses **virtual scrolling (windowing)** to keep DOM row count bounded regardless of total matched POIs
+- `poiFilters.ts` exports `poiTableWindowedSlice()` that calculates the visible row range from scroll offset, viewport height, fixed row height, and overscan count
+- `state.ts` holds the scroll position (`poiTableScrollTop`) and viewport height (`poiTableViewportHeight`) with a fixed `POI_TABLE_ROW_HEIGHT` (60px) and `POI_TABLE_OVERSCAN` (5)
+- `renderPoiTable()` in `views.ts` renders only the windowed slice inside a `.poi-table-viewport` container (`overflow-y: auto`, `contain: strict`)
+- scrolling updates the windowed rows via `updatePoiTableRows()` in `events.ts`, which replaces only the viewport innerHTML without touching the toolbar, stats, controls, or selection bar
+- selection-only updates (individual checkbox, select-all) call `updatePoiTableRows()` + `updatePoiToolbarFromSelection()` to avoid a full table rebuild
+- filter/search/status changes reset `poiTableScrollTop` to 0 before the full `updatePoiRegions()` call
+- the filtered POI list and selection state are computed once per `updatePoiRegions()` call and passed to both `renderPoiToolbar()` and `renderPoiTable()` to avoid duplicate filtering work
+- a passive scroll listener on `.poi-table-viewport` uses `requestAnimationFrame` to batch row updates during scrolling
+- scroll position is restored after full re-renders so selection-based updates preserve the user's scroll position
 
 ## Known quirks and gotchas
 
@@ -382,7 +394,7 @@ Prefer these boundaries when making changes:
 - `src/frontend/map.ts`: MapLibre map lifecycle, layer management, and rendering
 - `src/frontend/views.ts`: HTML string rendering for all views, forms, and sidebars
 - `src/frontend/events.ts`: render orchestration, event binding, and data loading/refresh
-- `src/frontend/poiFilters.ts`: pure POI page filtering/indexing logic only
+- `src/frontend/poiFilters.ts`: pure POI page filtering/indexing and windowed slice calculation logic only
 
 If a change crosses several of these layers, keep the responsibilities separated instead of collapsing logic into one file.
 

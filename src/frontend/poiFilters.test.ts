@@ -5,6 +5,7 @@ import {
   indexManagedPois,
   managedPoiKey,
   managedPoiSubcategoryKey,
+  poiTableWindowedSlice,
   summarizePoiCategories,
   summarizePoiSubcategories,
   type PoiFilterOptions,
@@ -206,4 +207,53 @@ test("existing subcategories are distinct and scoped to their category", () => {
 
   expect(existingPoiSubcategories(pois, "supermarket")).toEqual(["edeka"]);
   expect(existingPoiSubcategories(pois, "sport_studio")).toEqual(["Pilates", "Yoga"]);
+});
+
+test("poiTableWindowedSlice returns empty slice for empty list", () => {
+  expect(poiTableWindowedSlice(0, 0, 600, 60, 3)).toEqual({
+    startIndex: 0,
+    endIndex: 0,
+    topSpacerHeight: 0,
+    bottomSpacerHeight: 0,
+  });
+});
+
+test("poiTableWindowedSlice returns full list when shorter than viewport", () => {
+  expect(poiTableWindowedSlice(5, 0, 600, 60, 3)).toEqual({
+    startIndex: 0,
+    endIndex: 5,
+    topSpacerHeight: 0,
+    bottomSpacerHeight: 0,
+  });
+});
+
+test("poiTableWindowedSlice returns windowed slice at top", () => {
+  const slice = poiTableWindowedSlice(100, 0, 600, 60, 3);
+  expect(slice.startIndex).toBe(0);
+  expect(slice.endIndex).toBe(13);
+  expect(slice.topSpacerHeight).toBe(0);
+  expect(slice.bottomSpacerHeight).toBe(5220);
+});
+
+test("poiTableWindowedSlice returns windowed slice at middle", () => {
+  const slice = poiTableWindowedSlice(100, 3000, 600, 60, 3);
+  expect(slice.startIndex).toBe(47);
+  expect(slice.endIndex).toBe(63);
+  expect(slice.topSpacerHeight).toBe(2820);
+  expect(slice.bottomSpacerHeight).toBe(2220);
+});
+
+test("poiTableWindowedSlice returns windowed slice at bottom", () => {
+  const slice = poiTableWindowedSlice(100, 5640, 600, 60, 3);
+  expect(slice.startIndex).toBe(91);
+  expect(slice.endIndex).toBe(100);
+  expect(slice.topSpacerHeight).toBe(5460);
+  expect(slice.bottomSpacerHeight).toBe(0);
+});
+
+test("poiTableWindowedSlice clamps overscan at boundaries", () => {
+  const slice = poiTableWindowedSlice(100, 0, 600, 60, 10);
+  expect(slice.startIndex).toBe(0);
+  expect(slice.endIndex).toBe(20);
+  expect(slice.topSpacerHeight).toBe(0);
 });

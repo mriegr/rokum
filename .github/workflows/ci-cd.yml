@@ -11,11 +11,12 @@ permissions:
 
 concurrency:
   group: rokum-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +43,10 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      DEPLOY_PATH: /opt/apps/rokum
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,67 +54,103 @@ jobs:
       - name: Prepare SSH key
         run: |
           set -euo pipefail
+          umask 077
           mkdir -p ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/rokum_deploy_key
-          chmod 600 ~/.ssh/rokum_deploy_key
-          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+
+      - name: Prepare VPS directory
+        run: |
+          ssh -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
+            "mkdir -p '$DEPLOY_PATH/data/backups' && chmod 700 '$DEPLOY_PATH/data' '$DEPLOY_PATH/data/backups'"
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
 
       - name: Build production env file
         run: |
           set -euo pipefail
-          BASIC_AUTH_HASH="$(docker run --rm caddy:2.8.4-alpine caddy hash-password --plaintext "$BASIC_AUTH_PASSWORD")"
+          umask 077
+          [[ "$APP_DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$BASIC_AUTH_USER" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "$TRANSIT_MODE" == "heuristic" || "$TRANSIT_MODE" == "otp1" ]]
+          BASIC_AUTH_HASH="$(docker run --rm httpd:2.4-alpine htpasswd -nbB "$BASIC_AUTH_USER" "$BASIC_AUTH_PASSWORD" | cut -d: -f2-)"
           cat > .env <<EOF
-          PORT=3000
+          APP_VERSION=${GITHUB_SHA}
+          APP_DOMAIN=${APP_DOMAIN}
           CITY=Munich
-          DATA_DIR=/data
-          DB_PATH=/data/rokum.sqlite
-          UPLOAD_DIR=/data/uploads
           NOMINATIM_BASE_URL=https://nominatim.openstreetmap.org
           OVERPASS_BASE_URL=https://overpass-api.de/api/interpreter
           WALKING_ROUTER_BASE_URL=https://router.project-osrm.org
-          TRANSIT_MODE=heuristic
-          TRANSIT_BASE_URL=
-          JAWG_API=
+          TRANSIT_MODE=${TRANSIT_MODE}
+          TRANSIT_BASE_URL=${TRANSIT_BASE_URL}
+          JAWG_API=${JAWG_API}
           JAWG_STYLE_ID=jawg-streets
-          APP_DOMAIN=${APP_DOMAIN}
-          CADDY_EMAIL=${CADDY_EMAIL}
           BASIC_AUTH_USER=${BASIC_AUTH_USER}
-          BASIC_AUTH_HASH=${BASIC_AUTH_HASH}
+          BASIC_AUTH_HASH='${BASIC_AUTH_HASH}'
           EOF
         env:
           APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
-          CADDY_EMAIL: ${{ secrets.CADDY_EMAIL }}
           BASIC_AUTH_USER: ${{ secrets.BASIC_AUTH_USER }}
           BASIC_AUTH_PASSWORD: ${{ secrets.BASIC_AUTH_PASSWORD }}
+          JAWG_API: ${{ secrets.JAWG_API }}
+          TRANSIT_MODE: ${{ vars.TRANSIT_MODE || 'heuristic' }}
+          TRANSIT_BASE_URL: ${{ secrets.TRANSIT_BASE_URL }}
 
-      - name: Copy env file to VPS
+      - name: Sync app files to VPS
         run: |
-          scp -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes .env "$VPS_USER@$VPS_HOST:$VPS_PATH/.env"
+          set -euo pipefail
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes" \
+            --exclude-from '.dockerignore' \
+            --exclude '.env' \
+            --exclude '.env.rollback' \
+            ./ "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/"
         env:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_PATH: ${{ secrets.VPS_PATH }}
+
+      - name: Upload production env
+        run: |
+          set -euo pipefail
+          scp -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes \
+            .env "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/.env.next"
+          ssh -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
+            "chmod 600 '$DEPLOY_PATH/.env.next'"
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
 
       - name: Deploy on VPS
+        id: deploy
         run: |
-          ssh -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" <<EOF
+          ssh -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" <<'EOF'
             set -euo pipefail
-            cd "$VPS_PATH"
-            mkdir -p data/caddy-data data/caddy-config
-            git fetch origin main
-            git reset --hard origin/main
-            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+            cd /opt/apps/rokum
+
+            if [ -f .env ]; then
+              cp .env .env.rollback
+              chmod 600 .env.rollback
+              if [ -n "$(docker compose -f docker-compose.prod.yml ps --status running -q app)" ]; then
+                docker compose -f docker-compose.prod.yml exec -T app bun run backup:db
+              fi
+            fi
+
+            mv .env.next .env
+            docker compose -f docker-compose.prod.yml config --quiet
+            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans --wait --wait-timeout 120
           EOF
         env:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_PATH: ${{ secrets.VPS_PATH }}
 
       - name: Smoke test deployment
         run: |
+          set -euo pipefail
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' "https://$APP_DOMAIN/healthz")" = "401"
           curl --retry 12 --retry-all-errors --retry-delay 5 --fail-with-body \
             -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASSWORD" \
             "https://$APP_DOMAIN/healthz"
@@ -117,3 +158,35 @@ jobs:
           APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
           BASIC_AUTH_USER: ${{ secrets.BASIC_AUTH_USER }}
           BASIC_AUTH_PASSWORD: ${{ secrets.BASIC_AUTH_PASSWORD }}
+
+      - name: Roll back failed deployment
+        if: failure() && steps.deploy.outcome != 'skipped'
+        run: |
+          ssh -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" <<'EOF'
+            set -euo pipefail
+            cd /opt/apps/rokum
+            if [ -f .env.rollback ]; then
+              mv .env.rollback .env
+              docker compose -f docker-compose.prod.yml up -d --no-build --remove-orphans --wait --wait-timeout 120
+            fi
+          EOF
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+
+      - name: Retain recent app images
+        if: success()
+        run: |
+          ssh -i ~/.ssh/rokum_deploy_key -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" <<'EOF'
+            set -euo pipefail
+            docker image ls rokum --format '{{.Repository}}:{{.Tag}}' \
+              | tail -n +6 \
+              | xargs -r docker image rm || true
+          EOF
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+
+      - name: Remove SSH material
+        if: always()
+        run: rm -f ~/.ssh/rokum_deploy_key ~/.ssh/known_hosts .env

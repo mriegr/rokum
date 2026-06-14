@@ -1166,9 +1166,14 @@ textarea {
   gap: 8px;
 }
 
+.poi-table-viewport {
+  overflow-y: auto;
+  contain: strict;
+}
+
 .poi-table {
   display: grid;
-  gap: 10px;
+  gap: 0;
 }
 
 .poi-admin-row {
@@ -1466,10 +1471,6 @@ textarea {
   font-weight: 850;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-}
-
-.poi-table {
-  gap: 0;
 }
 
 .poi-admin-row {

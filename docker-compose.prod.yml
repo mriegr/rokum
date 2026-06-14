@@ -1,29 +1,81 @@
 services:
   app:
+    image: rokum:${APP_VERSION:-latest}
     build:
       context: .
       dockerfile: Dockerfile
-    env_file:
-      - .env
     environment:
       NODE_ENV: production
+      PORT: "3000"
+      CITY: ${CITY:-Munich}
+      DATA_DIR: /data
+      DB_PATH: /data/rokum.sqlite
+      UPLOAD_DIR: /data/uploads
+      NOMINATIM_BASE_URL: ${NOMINATIM_BASE_URL:-https://nominatim.openstreetmap.org}
+      OVERPASS_BASE_URL: ${OVERPASS_BASE_URL:-https://overpass-api.de/api/interpreter}
+      WALKING_ROUTER_BASE_URL: ${WALKING_ROUTER_BASE_URL:-https://router.project-osrm.org}
+      TRANSIT_MODE: ${TRANSIT_MODE:-heuristic}
+      TRANSIT_BASE_URL: ${TRANSIT_BASE_URL:-}
+      JAWG_API: ${JAWG_API:-}
+      JAWG_STYLE_ID: ${JAWG_STYLE_ID:-jawg-streets}
     volumes:
       - ./data:/data
     expose:
       - "3000"
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - const response = await fetch("http://127.0.0.1:3000/healthz"); if (!response.ok) process.exit(1);
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.rokum-http.rule=Host(`${APP_DOMAIN}`)
+      - traefik.http.routers.rokum-http.entrypoints=web
+      - traefik.http.routers.rokum-http.middlewares=rokum-https-redirect@docker
+      - traefik.http.routers.rokum-http.service=rokum
+      - traefik.http.routers.rokum.rule=Host(`${APP_DOMAIN}`)
+      - traefik.http.routers.rokum.entrypoints=websecure
+      - traefik.http.routers.rokum.tls.certresolver=letsencrypt
+      - traefik.http.routers.rokum.middlewares=rokum-security@docker,rokum-auth@docker,rokum-compress@docker
+      - traefik.http.middlewares.rokum-https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.rokum-https-redirect.redirectscheme.permanent=true
+      - traefik.http.middlewares.rokum-auth.basicauth.users=${BASIC_AUTH_USER}:${BASIC_AUTH_HASH}
+      - traefik.http.middlewares.rokum-auth.basicauth.removeheader=true
+      - traefik.http.middlewares.rokum-auth.basicauth.realm=Rokum
+      - traefik.http.middlewares.rokum-security.headers.stsseconds=31536000
+      - traefik.http.middlewares.rokum-security.headers.stsincludesubdomains=false
+      - traefik.http.middlewares.rokum-security.headers.contenttypenosniff=true
+      - traefik.http.middlewares.rokum-security.headers.framedeny=true
+      - traefik.http.middlewares.rokum-security.headers.referrerpolicy=no-referrer
+      - traefik.http.middlewares.rokum-security.headers.permissionspolicy=camera=(), geolocation=(), microphone=()
+      - traefik.http.middlewares.rokum-compress.compress=true
+      - traefik.http.services.rokum.loadbalancer.server.port=3000
+    networks:
+      - proxy
+    init: true
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
     restart: unless-stopped
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
 
-  caddy:
-    image: caddy:2.8.4-alpine
-    depends_on:
-      - app
-    env_file:
-      - .env
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./data/caddy-data:/data
-      - ./data/caddy-config:/config
-    restart: unless-stopped
+networks:
+  proxy:
+    external: true

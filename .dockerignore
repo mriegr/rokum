@@ -2,10 +2,13 @@ node_modules
 data
 .git
 .github
+.codex
 .playwright-mcp
 coverage
 dist
 out
+output
+*.png
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

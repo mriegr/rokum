@@ -8,6 +8,8 @@ import {
   MANAGED_POI_CATEGORY_ORDER,
   POI_LABELS,
   poiIconKey,
+  POI_TABLE_ROW_HEIGHT,
+  POI_TABLE_OVERSCAN,
   state,
   standardPoiLabel,
   sortedApartments,
@@ -27,6 +29,7 @@ import {
   existingPoiSubcategories,
   managedPoiKey,
   managedPoiSubcategories,
+  poiTableWindowedSlice,
   summarizePoiCategories,
   summarizePoiSubcategories,
 } from "./poiFilters";
@@ -355,10 +358,10 @@ export function renderPoiStats() {
   `;
 }
 
-export function renderPoiToolbar() {
-  const pois = filteredManagedPois();
-  const selection = visibleManagedPoiSelectionState();
-
+export function renderPoiToolbar(
+  pois: ManagedPoi[],
+  selection: { total: number; selected: number; allSelected: boolean },
+) {
   return `
     <div class="poi-inventory-head">
       <div class="poi-title-block">
@@ -626,12 +629,14 @@ export function renderPoiEditor() {
   `;
 }
 
-export function renderPoiTable() {
-  const pois = filteredManagedPois();
-  const selection = visibleManagedPoiSelectionState();
+export function renderPoiTable(
+  pois: ManagedPoi[],
+  selection: { total: number; selected: number; allSelected: boolean },
+) {
   const selectedKeys = new Set(state.selectedManagedPoiKeys);
+  const viewportHeight = state.poiTableViewportHeight || 600;
 
-  return `
+  const selectionBar = `
     <div class="poi-selection-bar">
       <label class="select-all-toggle">
         <input
@@ -643,28 +648,59 @@ export function renderPoiTable() {
         <span>Select visible</span>
       </label>
       <p>${selection.selected} selected</p>
-    </div>
+    </div>`;
+
+  const columnHead = `
     <div class="poi-column-head" aria-hidden="true">
       <span></span><span>POI and address</span><span>Category / subcategory</span><span>Notes</span><span>Source</span><span>Status</span>
-    </div>
-    <div class="poi-table">
-      ${
-        pois.length
-          ? pois.map((poi) => renderPoiRow(poi, selectedKeys)).join("")
-          : `<div class="empty-state"><h2>No POIs match these filters</h2><p>Try a broader search or enable more categories.</p></div>`
-      }
+    </div>`;
+
+  if (!pois.length) {
+    return `
+      ${selectionBar}
+      ${columnHead}
+      <div class="poi-table">
+        <div class="empty-state"><h2>No POIs match these filters</h2><p>Try a broader search or enable more categories.</p></div>
+      </div>
+    `;
+  }
+
+  const slice = poiTableWindowedSlice(
+    pois.length,
+    state.poiTableScrollTop,
+    viewportHeight,
+    POI_TABLE_ROW_HEIGHT,
+    POI_TABLE_OVERSCAN,
+  );
+
+  const rowsHtml = pois
+    .slice(slice.startIndex, slice.endIndex)
+    .map((poi) => renderPoiRow(poi, selectedKeys))
+    .join("");
+
+  return `
+    ${selectionBar}
+    ${columnHead}
+    <div class="poi-table-viewport" style="height:${viewportHeight}px">
+      <div style="height:${slice.topSpacerHeight}px"></div>
+      <div class="poi-table" role="group" aria-label="POI list">
+        ${rowsHtml}
+      </div>
+      <div style="height:${slice.bottomSpacerHeight}px"></div>
     </div>
   `;
 }
 
 export function renderPoisView() {
+  const pois = filteredManagedPois();
+  const selection = visibleManagedPoiSelectionState();
   return `
     <section class="content-shell poi-admin-shell">
-      <div id="poi-toolbar-region">${renderPoiToolbar()}</div>
+      <div id="poi-toolbar-region">${renderPoiToolbar(pois, selection)}</div>
       <div id="poi-stats-region">${renderPoiStats()}</div>
       <section class="poi-admin-panel poi-inventory-panel">
         <div id="poi-controls-region">${renderPoiControls()}</div>
-        <div id="poi-table-region">${renderPoiTable()}</div>
+        <div id="poi-table-region">${renderPoiTable(pois, selection)}</div>
       </section>
       ${renderPoiEditor()}
     </section>
